@@ -1,0 +1,27 @@
+[project]
+name = "crossmarket"
+version = "0.1.0"
+description = "Multi-tool LLM agent for cross-marketplace price comparison â eval harness, judge calibration on held-out sets, cost and trace observability."
+authors = [
+    {name = "Konstantin Sviblov",email = "kostanych1@gmail.com"}
+]
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+]
+
+[dependency-groups]
+dev = [
+    "streamlit (>=1.60.0,<2.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
