@@ -7,3 +7,6 @@ __pycache__/
 mlruns/
 mlflow.db
 data/
+plan/
+.claude/
+CLAUDE.md
