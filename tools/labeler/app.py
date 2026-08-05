@@ -5,8 +5,11 @@
 
 Запуск:  poetry run streamlit run tools/labeler/app.py
 
-Цикл работы: снять обе карточки браузерным скрапером → загрузить сюда два CSV
-→ «Извлечь поля» → проверить и поправить → поставить метку → «Сохранить пару».
+Цикл работы: снять карточки браузерным скрапером и разложить файлы по
+`data/wb/` и `data/ozon/` → вставить сюда две ссылки → под каждой появится
+название и цена из выгрузки → поставить метку → «Сохранить пару». В сеть
+разметчик не ходит: ссылка нужна ради идентификатора и провенанса, карточка
+берётся с диска.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ from __future__ import annotations
 import streamlit as st
 
 from crossmarket.extraction.ozon import extract_ozon_csv
+from crossmarket.extraction.scraped import find_dump
 from crossmarket.extraction.urls import parse_ozon_id, parse_wb_id
 from crossmarket.extraction.wb import extract_wb_csv
 from crossmarket.models import Label, Product
@@ -77,14 +81,6 @@ def _text_to_attrs(text: str) -> dict[str, str]:
     return attrs
 
 
-def _uploaded_text(side: str) -> str:
-    """Содержимое загруженного CSV. Пустая строка, если файла нет."""
-    uploaded = st.session_state.get(f"{side}__csv")
-    if uploaded is None:
-        return ""
-    return uploaded.getvalue().decode("utf-8-sig")
-
-
 def _apply_extracted(side: str, product: Product) -> None:
     st.session_state[_key(side, "id")] = product.id
     st.session_state[_key(side, "title")] = product.title
@@ -97,74 +93,90 @@ def _apply_extracted(side: str, product: Product) -> None:
 
 
 def _id_mismatch(side: str) -> tuple[str, str] | None:
-    """Идентификаторы из CSV и из ссылки, если они разошлись.
+    """Идентификаторы из выгрузки и из ссылки, если они разошлись.
 
-    Ссылка вставляется ради провенанса, но заодно это второй, независимый
-    источник идентификатора. Расхождение означает, что CSV одного товара
-    приехал вместе со ссылкой другого — за двести пар копипасты случай
-    неизбежный, а постфактум в датасете почти неразличимый.
+    Выгрузка ищется по идентификатору из ссылки, так что разойтись они могут
+    только после ручной правки поля. Проверка держится на сохранении потому,
+    что перепутанная пара в датасете постфактум почти неразличима.
     """
-    from_csv = st.session_state[_key(side, "id")].strip()
+    from_form = st.session_state[_key(side, "id")].strip()
     from_url = ID_PARSERS[side](st.session_state[_key(side, "url")])
-    if from_csv and from_url and from_csv != from_url:
-        return from_csv, from_url
+    if from_form and from_url and from_form != from_url:
+        return from_form, from_url
     return None
 
 
-def _handle_extract(side: str) -> None:
-    """Кнопка «Извлечь поля». Идентификатор берётся из CSV, а из ссылки — как запасной."""
-    raw = _uploaded_text(side)
+def _handle_url(side: str) -> None:
+    """Ссылка вставлена: вытащить идентификатор и подтянуть карточку с диска."""
+    url = st.session_state[_key(side, "url")]
+    product_id = ID_PARSERS[side](url)
+
+    if not product_id:
+        if url.strip():
+            st.warning(f"{SIDES[side]}: не разобрал идентификатор из ссылки.")
+        return
+
+    st.session_state[_key(side, "id")] = product_id
+
+    path = find_dump(side, product_id, DATA_DIR)  # type: ignore[arg-type]
+    if path is None:
+        st.warning(f"{SIDES[side]}: выгрузки {product_id} нет в `{DATA_DIR / side}`. Карточка скрапнута?")
+        return
+
+    raw = path.read_text(encoding="utf-8-sig")
     st.session_state[f"{side}__raw"] = raw
+    try:
+        _apply_extracted(side, EXTRACTORS[side](raw, url=url))
+    except (ValueError, KeyError) as exc:
+        st.error(f"{SIDES[side]}: не разобрал `{path.name}` — {exc}")
 
-    if raw:
-        try:
-            _apply_extracted(side, EXTRACTORS[side](raw, url=st.session_state[_key(side, "url")]))
-        except NotImplementedError as exc:
-            st.info(f"{SIDES[side]}: {exc} Заполни поля руками — форма редактируемая.")
-        except (ValueError, KeyError) as exc:
-            st.error(f"{SIDES[side]}: не разобрал CSV — {exc}")
 
-    # Ссылка не обязательна, но если идентификатор из CSV не пришёл, выручит она.
-    if not st.session_state[_key(side, "id")]:
-        url = st.session_state[_key(side, "url")]
-        product_id = ID_PARSERS[side](url)
-        if product_id:
-            st.session_state[_key(side, "id")] = product_id
-        elif url.strip():
-            st.warning(f"{SIDES[side]}: не разобрал идентификатор ни из CSV, ни из ссылки.")
-
-    mismatch = _id_mismatch(side)
-    if mismatch:
-        st.warning(
-            f"{SIDES[side]}: идентификатор из CSV ({mismatch[0]}) не совпал со ссылкой ({mismatch[1]}). "
-            "Не перепутаны ли файлы?"
-        )
+def _render_preview(side: str) -> None:
+    """Название и цена из выгрузки — проверка, что подтянулся тот товар."""
+    title = st.session_state[_key(side, "title")]
+    if not title:
+        return
+    price = st.session_state[_key(side, "price")]
+    st.markdown(f"**{title}**")
+    # Узкий пробел в разрядах — как на самих площадках, и цена не рвётся переносом.
+    st.caption(f"{price:,} ₽".replace(",", "\u2009") if price else "цена не извлеклась")
 
 
 def _render_side(side: str) -> None:
     st.subheader(SIDES[side])
-    st.file_uploader("CSV скрапера", type="csv", key=f"{side}__csv")
     st.text_input(
         "Ссылка на карточку",
         key=_key(side, "url"),
-        help="Нужна для провенанса. Идентификатор берётся из CSV, ссылка — запасной источник.",
+        on_change=_handle_url,
+        args=(side,),
+        help="Идентификатор берётся отсюда, по нему в `data/<площадка>/` ищется выгрузка скрапера.",
     )
-    st.button("Извлечь поля", key=f"extract_{side}", on_click=_handle_extract, args=(side,), width="stretch")
+    st.button(
+        "Перечитать выгрузки",
+        key=f"extract_{side}",
+        on_click=_handle_url,
+        args=(side,),
+        help="Если файл положен в папку уже после того, как вставлена ссылка.",
+        width="stretch",
+    )
+    _render_preview(side)
 
-    st.divider()
-    st.text_input("Идентификатор", key=_key(side, "id"))
-    st.text_input("Название", key=_key(side, "title"))
-    st.text_area("Описание", key=_key(side, "description"), height=100)
-    st.number_input("Цена, ₽", min_value=0, step=1, key=_key(side, "price"))
-    st.text_input("Категория", key=_key(side, "category"))
-    st.text_input("Бренд", key=_key(side, "brand"))
-    st.text_area(
-        "Характеристики",
-        key=_key(side, "attrs"),
-        height=140,
-        help="По одной в строке, в формате «ключ: значение».",
-    )
-    st.number_input("Отзывов", min_value=0, step=1, key=_key(side, "reviews"), help="0 — данных нет. Поле опционально.")
+    with st.expander("Все поля", expanded=False):
+        st.text_input("Идентификатор", key=_key(side, "id"))
+        st.text_input("Название", key=_key(side, "title"))
+        st.text_area("Описание", key=_key(side, "description"), height=100)
+        st.number_input("Цена, ₽", min_value=0, step=1, key=_key(side, "price"))
+        st.text_input("Категория", key=_key(side, "category"))
+        st.text_input("Бренд", key=_key(side, "brand"))
+        st.text_area(
+            "Характеристики",
+            key=_key(side, "attrs"),
+            height=140,
+            help="По одной в строке, в формате «ключ: значение».",
+        )
+        st.number_input(
+            "Отзывов", min_value=0, step=1, key=_key(side, "reviews"), help="0 — данных нет. Поле опционально."
+        )
 
 
 def _collect_product(side: str) -> Product:
@@ -195,8 +207,8 @@ def _save_pair() -> None:
         mismatch = _id_mismatch(side)
         if mismatch:
             st.error(
-                f"{SIDES[side]}: идентификатор из CSV ({mismatch[0]}) не совпал со ссылкой ({mismatch[1]}). "
-                "Пара не сохранена — проверь, тот ли CSV загружен."
+                f"{SIDES[side]}: идентификатор в форме ({mismatch[0]}) не совпал со ссылкой ({mismatch[1]}). "
+                "Пара не сохранена — проверь, та ли ссылка вставлена."
             )
             return
 
@@ -226,12 +238,16 @@ def _render_sidebar() -> None:
     st.sidebar.metric("Матчей", matches)
     st.sidebar.metric("Не-матчей", len(labels) - matches)
     st.sidebar.metric("Карточек собрано", len(load_products()))
-    st.sidebar.caption(f"Данные: `{DATA_DIR.resolve()}`")
+    st.sidebar.caption(f"Датасет: `{DATA_DIR.resolve()}`")
 
 
 def main() -> None:
     st.set_page_config(page_title="Разметчик ВБ↔Озон", layout="wide")
     _init_state()
+
+    # Чтобы было куда складывать файлы скрапера с первого запуска.
+    for side in SIDES:
+        (DATA_DIR / side).mkdir(parents=True, exist_ok=True)
 
     st.title("Разметчик пар ВБ↔Озон")
     st.caption("Сбор полуручной: карточки снимаются скрапером с открытых страниц, в сеть разметчик не ходит.")
