@@ -83,7 +83,6 @@ def test_matrasnik_card() -> None:
     assert product.title == "Наматрасник непромокаемый на резинке 180х200 см"
     assert product.price_rub == 871
     assert product.category == "Дом / Спальня"
-    assert product.brand == "Stretch Jersy"
     assert product.review_count == 18491
     assert product.description.startswith("Наматрасник 180×200 непромокаемый")
 
@@ -103,7 +102,6 @@ def test_shkatulka_card() -> None:
     assert product.title == "Металлическая шкатулка ящик для денег МВ4"
     assert product.price_rub == 1668
     assert product.category == "Дом / Хранение вещей"
-    assert product.brand == "KlestO"
     assert product.review_count == 8
     assert product.description.startswith("Кэшбокс Klesto")
     assert product.attributes["Цвет"] == "черный матовый"
@@ -122,4 +120,4 @@ def test_only_first_row_is_used() -> None:
 
 def test_empty_csv_is_rejected() -> None:
     with pytest.raises(ValueError, match="CSV пуст"):
-        extract_wb_csv("title,price,cats,charasteristics,desc,reviews,id,brand\n")
+        extract_wb_csv("title,price,cats,charasteristics,desc,reviews,id\n")

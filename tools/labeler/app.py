@@ -41,7 +41,6 @@ FIELD_DEFAULTS: dict[str, object] = {
     "description": "",
     "price": 0,
     "category": "",
-    "brand": "",
     "attrs": "",
     "reviews": 0,
 }
@@ -87,7 +86,6 @@ def _apply_extracted(side: str, product: Product) -> None:
     st.session_state[_key(side, "description")] = product.description
     st.session_state[_key(side, "price")] = product.price_rub or 0
     st.session_state[_key(side, "category")] = product.category
-    st.session_state[_key(side, "brand")] = product.brand
     st.session_state[_key(side, "attrs")] = _attrs_to_text(product.attributes)
     st.session_state[_key(side, "reviews")] = product.review_count or 0
 
@@ -167,7 +165,6 @@ def _render_side(side: str) -> None:
         st.text_area("Описание", key=_key(side, "description"), height=100)
         st.number_input("Цена, ₽", min_value=0, step=1, key=_key(side, "price"))
         st.text_input("Категория", key=_key(side, "category"))
-        st.text_input("Бренд", key=_key(side, "brand"))
         st.text_area(
             "Характеристики",
             key=_key(side, "attrs"),
@@ -188,7 +185,6 @@ def _collect_product(side: str) -> Product:
         description=st.session_state[_key(side, "description")].strip(),
         price_rub=st.session_state[_key(side, "price")] or None,
         category=st.session_state[_key(side, "category")].strip(),
-        brand=st.session_state[_key(side, "brand")].strip(),
         attributes=_text_to_attrs(st.session_state[_key(side, "attrs")]),
         review_count=st.session_state[_key(side, "reviews")] or None,
     )

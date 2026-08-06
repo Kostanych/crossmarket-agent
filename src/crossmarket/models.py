@@ -34,7 +34,6 @@ class Product:
     description: str = ""
     price_rub: int | None = None
     category: str = ""
-    brand: str = ""
     attributes: dict[str, str] = field(default_factory=dict)
     review_count: int | None = None
     collected_at: str = field(default_factory=_now)
@@ -68,6 +67,7 @@ class Label:
     label: LabelValue
     negative_kind: NegativeKind | None = None
     source: str = "manual"
+    comment: str = ""
     labeled_at: str = field(default_factory=_now)
 
     @property

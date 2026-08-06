@@ -11,7 +11,6 @@ import pytest
 
 from crossmarket.extraction.ozon import (
     extract_ozon_csv,
-    parse_brand,
     parse_categories,
     parse_characteristics,
     parse_price,
@@ -62,21 +61,12 @@ def test_parse_categories_tolerates_short_breadcrumbs() -> None:
     assert parse_categories("") == ""
 
 
-def test_brand_prefers_explicit_characteristic() -> None:
-    cats = "Электроника\nБатарейки\nGP"
-    assert parse_brand(cats, {"Бренд": "GP Batteries"}) == "GP Batteries"
-
-
-def test_brand_falls_back_to_last_breadcrumb() -> None:
-    """На странице бренд указан не всегда, но в крошках он последний уровень."""
-    cats = "Бытовая техника\nТехника для дома\nПылесосы\nРоботы-пылесосы\nDreame"
-    assert parse_brand(cats, {}) == "Dreame"
-
-
-def test_brand_empty_when_breadcrumbs_are_too_short() -> None:
-    """Крошки короче трёх уровней — последний из них категория, а не бренд."""
-    assert parse_brand("Электроника\nБатарейки", {}) == ""
-    assert parse_brand("", {}) == ""
+def test_description_drops_only_its_own_header() -> None:
+    """«Комплектация» и «Состав» — содержание, «Описание» — служебная строка."""
+    header = "title,price,cats,characteristics,desc,reviews,id\n"
+    # Переводы строк внутри ячейки, поэтому значение в кавычках — как в выгрузке.
+    assert extract_ozon_csv(header + 't,1 ₽,Дом,,"Описание\nТекст",,1\n').description == "Текст"
+    assert extract_ozon_csv(header + 't,1 ₽,Дом,,"Комплектация\n2 шт",,1\n').description == "Комплектация\n2 шт"
 
 
 def test_characteristics_drop_header_and_article() -> None:
@@ -117,8 +107,6 @@ def test_single_row_card() -> None:
     assert product.title.startswith("Робот-пылесос Dreame F21")
     assert product.price_rub == 16862
     assert product.category == "Бытовая техника / Техника для дома"
-    # В характеристиках ключа «Бренд» нет — берётся последний уровень крошек.
-    assert product.brand == "Dreame"
     assert product.review_count == 9574
     assert product.attributes["Сила всасывания, Па"] == "20000"
     assert product.attributes["Датчики"] == ("Датчик препятствий, Лазерный дальномер, Датчик распознавания ковров")
@@ -134,7 +122,6 @@ def test_multi_row_card_concatenates_description() -> None:
     assert product.price_rub == 912
     assert product.review_count == 98697
     assert product.category == "Электроника / Аксессуары для электроники"
-    assert product.brand == "GP"
     assert product.attributes["Бренд"] == "GP"
     assert product.attributes["Количество в упаковке, шт"] == "20"
 

@@ -140,7 +140,6 @@ def extract_wb_csv(text: str, url: str = "") -> Product:
         description=parse_description(row.get("desc", "")),
         price_rub=parse_price(row.get("price", "")),
         category=parse_categories(row.get("cats", "")),
-        brand=row.get("brand", "").strip(),
         attributes=parse_characteristics(_cell(row, *CHARACTERISTICS_COLUMNS)),
         review_count=parse_review_count(row.get("reviews", "")),
     )

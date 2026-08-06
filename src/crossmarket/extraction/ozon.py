@@ -19,7 +19,7 @@ import re
 from crossmarket.models import Product
 
 ARTICLE_KEY = "Артикул"
-BRAND_KEY = "Бренд"
+DESCRIPTION_HEADER = "Описание"
 DISCLAIMER_PREFIX = "Информация о технических характеристиках"
 HEADER_LINES = frozenset({"Характеристики", "Добавить к сравнению"})
 CATEGORY_DEPTH = 2
@@ -28,17 +28,30 @@ CATEGORY_SEPARATOR = " / "
 
 def _rows(text: str) -> list[dict[str, str]]:
     reader = csv.DictReader(io.StringIO(text.lstrip("﻿")))
-    return [{(k or "").strip().lower(): (v or "") for k, v in row.items()} for row in reader]
+    return [
+        {(k or "").strip().lower(): (v or "") for k, v in row.items()} for row in reader
+    ]
 
 
 def _first(rows: list[dict[str, str]], column: str) -> str:
     """Первое непустое значение колонки: скалярные поля лежат в первой строке."""
-    return next((row[column].strip() for row in rows if row.get(column, "").strip()), "")
+    return next(
+        (row[column].strip() for row in rows if row.get(column, "").strip()), ""
+    )
 
 
 def _joined_description(rows: list[dict[str, str]]) -> str:
+    """Описание, склеенное из строк файла, без служебного заголовка.
+
+    Блок описания у Озона размечен заголовками: «Описание», «Комплектация»,
+    «Состав», «Способ применения» — на 58 выгрузках с описанием другие не
+    встретились. Снимается только «Описание»: оно ничего не сообщает о товаре,
+    а остальные называют то, что за ними идёт, и различают карточки.
+    """
     parts = [row["desc"].strip() for row in rows if row.get("desc", "").strip()]
-    return "\n\n".join(parts)
+    text = "\n\n".join(parts)
+    head, _, tail = text.partition("\n")
+    return tail.strip() if head.strip() == DESCRIPTION_HEADER else text
 
 
 def parse_price(raw: str) -> int | None:
@@ -60,24 +73,13 @@ def parse_review_count(raw: str) -> int | None:
 
 
 def parse_categories(raw: str) -> str:
-    """Первые два элемента - две верхние категории.
-    Последний элемент строки - бренд.
+    """Первые два элемента — две верхние категории.
+
+    Глубже начинается дробление вроде «Коробки, корзины и тубусы», от которого
+    в агрегатах tool C толку нет.
     """
     levels = [line.strip() for line in raw.split("\n") if line.strip()]
     return CATEGORY_SEPARATOR.join(levels[:CATEGORY_DEPTH])
-
-
-def parse_brand(cats_raw: str, attributes: dict[str, str]) -> str:
-    """Бренд карточки.
-
-    В характеристиках ключ «Бренд» есть не всегда, зато последний уровень
-    в строке с категориями - это он и есть.
-    """
-    explicit = attributes.get(BRAND_KEY, "").strip()
-    if explicit:
-        return explicit
-    levels = [line.strip() for line in cats_raw.split("\n") if line.strip()]
-    return levels[-1] if len(levels) > CATEGORY_DEPTH else ""
 
 
 def parse_characteristics(raw: str) -> dict[str, str]:
@@ -134,7 +136,6 @@ def extract_ozon_csv(text: str, url: str = "") -> Product:
         description=_joined_description(rows),
         price_rub=parse_price(_first(rows, "price")),
         category=parse_categories(cats_raw),
-        brand=parse_brand(cats_raw, attributes),
         attributes=attributes,
         review_count=parse_review_count(_first(rows, "reviews")),
     )
