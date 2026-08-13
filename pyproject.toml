@@ -30,4 +30,4 @@ build-backend = "poetry.core.masonry.api"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]точно
+select = ["E", "F", "I", "UP", "B"]
