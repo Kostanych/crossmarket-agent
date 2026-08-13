@@ -29,13 +29,16 @@ SEED_FILE = "разметка.csv"
 SEED_COLUMNS = {"wb": "вб", "ozon": "озон", "result": "result", "comment": "comment"}
 MARKETPLACES: tuple[Marketplace, ...] = ("wb", "ozon")
 
-# Поля, отсутствие которых стоит видеть в отчёте. Из них обязательна только
-# цена — без неё карточка выбраковывается, см. Dumps.
 REQUIRED_FIELDS = ("title", "price_rub", "category", "attributes", "description")
 
 
 class Dumps:
-    """Разобранные выгрузки одной площадки плюс всё, что с ними не так."""
+    """Разобранные выгрузки одной площадки плюс всё, что с ними не так.
+
+    Карточка без цены выбраковывается: сравнение цен между площадками —
+    половина задачи, а дырка в снапшоте молча превратится в неверный агрегат
+    tool C. Остальные поля из `REQUIRED_FIELDS` только считаются в отчёте.
+    """
 
     def __init__(self, marketplace: Marketplace, root: Path) -> None:
         self.marketplace = marketplace
@@ -50,9 +53,6 @@ class Dumps:
                 self.without_id.append(path.name)
                 continue
             if product.price_rub is None:
-                # Карточка без цены выбраковывается: сравнение цен между
-                # площадками — половина задачи, а дырка в снапшоте молча
-                # превратится в неверный агрегат tool C.
                 self.without_price.append(product.id)
                 continue
             if product.id in self.products:
@@ -75,8 +75,8 @@ def seed_to_label(row: dict[str, str]) -> Label:
     """Строка сида → метка.
 
     Все нули сида — hard negatives: список собирался из пар-кандидатов, которые
-    похожи, иначе их не с чем было бы сравнивать. Easy negatives придётся
-    добирать отдельно, случайными парами.
+    похожи, иначе их не с чем было бы сравнивать. Soft negatives добираются
+    отдельно, случайными парами из выборки.
     """
     is_match = row[SEED_COLUMNS["result"]].strip() == "1"
     return Label(

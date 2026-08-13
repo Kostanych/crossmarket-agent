@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 Marketplace = Literal["wb", "ozon"]
 LabelValue = Literal["match", "no_match"]
-NegativeKind = Literal["hard", "easy"]
+NegativeKind = Literal["hard", "soft"]
 
 
 def _now() -> str:
@@ -47,8 +47,7 @@ class Product:
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> Product:
-        # Незнакомые ключи игнорируем: JSONL хранит историю правок, и в старых
-        # строках схема может отличаться от текущей.
+        """Незнакомые ключи игнорируются: в старых строках JSONL схема другая."""
         known = _known_fields(cls)
         return cls(**{k: v for k, v in raw.items() if k in known})
 
@@ -60,6 +59,10 @@ class Label:
     Хранится отдельно от товаров и НИКОГДА не попадает в таблицы ClickHouse,
     которые читает tool C: иначе агент сможет подсмотреть ответ, и метрики B
     перестанут что-либо означать.
+
+    `negative_kind`: `hard` — похожий товар с отличием, трудный для модели;
+    `soft` — случайная карточка из выборки. Метрика B без доли hard в тест-сете
+    надувается: случайные не-матчи отличаются тривиально.
     """
 
     wb_id: str

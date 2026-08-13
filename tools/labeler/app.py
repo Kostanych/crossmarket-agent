@@ -130,13 +130,16 @@ def _handle_url(side: str) -> None:
 
 
 def _render_preview(side: str) -> None:
-    """Название и цена из выгрузки — проверка, что подтянулся тот товар."""
+    """Название и цена из выгрузки — проверка, что подтянулся тот товар.
+
+    Разряды цены разделены узким пробелом, как на самих площадках, и цена
+    не рвётся переносом строки.
+    """
     title = st.session_state[_key(side, "title")]
     if not title:
         return
     price = st.session_state[_key(side, "price")]
     st.markdown(f"**{title}**")
-    # Узкий пробел в разрядах — как на самих площадках, и цена не рвётся переносом.
     st.caption(f"{price:,} ₽".replace(",", "\u2009") if price else "цена не извлеклась")
 
 
@@ -198,7 +201,6 @@ def _save_pair() -> None:
         st.error(f"Нет идентификатора: {', '.join(missing)}. Пара не сохранена.")
         return
 
-    # Сверка, которая не предупреждает, а пропускает, датасет не защищает.
     for side in SIDES:
         mismatch = _id_mismatch(side)
         if mismatch:
@@ -241,7 +243,6 @@ def main() -> None:
     st.set_page_config(page_title="Разметчик ВБ↔Озон", layout="wide")
     _init_state()
 
-    # Чтобы было куда складывать файлы скрапера с первого запуска.
     for side in SIDES:
         (DATA_DIR / side).mkdir(parents=True, exist_ok=True)
 
@@ -267,8 +268,8 @@ def main() -> None:
     if st.session_state["label"] == "no_match":
         st.radio(
             "Тип негатива",
-            options=["hard", "easy"],
-            format_func=lambda v: "Hard — близкий товар" if v == "hard" else "Easy — далёкий товар",
+            options=["hard", "soft"],
+            format_func=lambda v: "Hard — похожий товар" if v == "hard" else "Soft — случайный товар",
             key="negative_kind",
             horizontal=True,
             help="Нужен для стратификации тест-сета пар: на случайных негативах метрика B надувается.",

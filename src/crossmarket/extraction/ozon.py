@@ -28,16 +28,12 @@ CATEGORY_SEPARATOR = " / "
 
 def _rows(text: str) -> list[dict[str, str]]:
     reader = csv.DictReader(io.StringIO(text.lstrip("﻿")))
-    return [
-        {(k or "").strip().lower(): (v or "") for k, v in row.items()} for row in reader
-    ]
+    return [{(k or "").strip().lower(): (v or "") for k, v in row.items()} for row in reader]
 
 
 def _first(rows: list[dict[str, str]], column: str) -> str:
     """Первое непустое значение колонки: скалярные поля лежат в первой строке."""
-    return next(
-        (row[column].strip() for row in rows if row.get(column, "").strip()), ""
-    )
+    return next((row[column].strip() for row in rows if row.get(column, "").strip()), "")
 
 
 def _joined_description(rows: list[dict[str, str]]) -> str:

@@ -22,8 +22,6 @@ from crossmarket.models import Marketplace, Product
 
 EXTRACTORS = {"wb": extract_wb_csv, "ozon": extract_ozon_csv}
 
-# Чужой файл в папке или обрезанная выгрузка не должны ронять поиск: файлов
-# сотни, и один битый не повод останавливать разметку.
 _BROKEN_DUMP = (OSError, UnicodeDecodeError, ValueError, KeyError, csv.Error)
 
 
@@ -33,7 +31,11 @@ def read_dump(marketplace: Marketplace, path: Path, url: str = "") -> Product:
 
 
 def iter_dumps(marketplace: Marketplace, root: Path) -> Iterator[tuple[Path, Product]]:
-    """Все читаемые выгрузки площадки. Нечитаемые молча пропускаются."""
+    """Все читаемые выгрузки площадки.
+
+    Чужой файл в папке или обрезанная выгрузка молча пропускаются: файлов
+    сотни, и один битый не повод останавливать разметку.
+    """
     folder = root / marketplace
     if not folder.is_dir():
         return

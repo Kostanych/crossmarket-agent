@@ -35,10 +35,10 @@ def _seed_file(tmp_path: Path, body: str) -> Path:
 
 
 def test_seed_match_row(tool: ModuleType, tmp_path: Path) -> None:
-    (row,) = tool.load_seed(_seed_file(tmp_path, "1107834773;4550118506;1;\n"))
+    (row,) = tool.load_seed(_seed_file(tmp_path, "1000000001;4000000001;1;\n"))
     label = tool.seed_to_label(row)
 
-    assert (label.wb_id, label.ozon_id) == ("1107834773", "4550118506")
+    assert (label.wb_id, label.ozon_id) == ("1000000001", "4000000001")
     assert label.label == "match"
     assert label.negative_kind is None
     assert label.source == "seed"
@@ -46,7 +46,7 @@ def test_seed_match_row(tool: ModuleType, tmp_path: Path) -> None:
 
 def test_seed_zero_is_a_hard_negative(tool: ModuleType, tmp_path: Path) -> None:
     """Сид собран из похожих пар-кандидатов, случайных негативов в нём нет."""
-    (row,) = tool.load_seed(_seed_file(tmp_path, "1093111341;4548406050;0;\n"))
+    (row,) = tool.load_seed(_seed_file(tmp_path, "1000000002;4000000002;0;\n"))
     label = tool.seed_to_label(row)
 
     assert label.label == "no_match"
@@ -54,10 +54,10 @@ def test_seed_zero_is_a_hard_negative(tool: ModuleType, tmp_path: Path) -> None:
 
 
 def test_comment_survives(tool: ModuleType, tmp_path: Path) -> None:
-    """Оговорка разметчика — материал для калибровки судьи, терять её нельзя."""
-    (row,) = tool.load_seed(_seed_file(tmp_path, "1079162645;4833793331;1;серый vs рандомный цвет\n"))
+    """Оговорка из сида — материал для калибровки судьи, терять её нельзя."""
+    (row,) = tool.load_seed(_seed_file(tmp_path, "1000000003;4000000003;1;оговорка\n"))
 
-    assert tool.seed_to_label(row).comment == "серый vs рандомный цвет"
+    assert tool.seed_to_label(row).comment == "оговорка"
 
 
 def test_split_by_coverage(tool: ModuleType, tmp_path: Path) -> None:
