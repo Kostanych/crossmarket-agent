@@ -29,9 +29,21 @@ def tool() -> ModuleType:
 
 
 def _seed_file(tmp_path: Path, body: str) -> Path:
-    path = tmp_path / "разметка.csv"
-    path.write_text("вб;озон;result;comment\n" + body, encoding="utf-8-sig")
+    path = tmp_path / "seed.csv"
+    path.write_text("wb;ozon;result;comment\n" + body, encoding="utf-8-sig")
     return path
+
+
+def test_seed_in_cp1251_with_uppercase_headers(tool: ModuleType, tmp_path: Path) -> None:
+    """Так приехала вторая выгрузка сида: другая кодировка и заголовки капсом."""
+    path = tmp_path / "seed.csv"
+    path.write_bytes("WB;OZON;result;comment\n1000000004;4000000004;0;оговорка\n".encode("cp1251"))
+
+    (row,) = tool.load_seed(path)
+    label = tool.seed_to_label(row)
+
+    assert (label.wb_id, label.ozon_id) == ("1000000004", "4000000004")
+    assert label.comment == "оговорка"
 
 
 def test_seed_match_row(tool: ModuleType, tmp_path: Path) -> None:

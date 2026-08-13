@@ -1,6 +1,6 @@
 """Сборка датасета из выгрузок скрапера и сид-разметки.
 
-Читает `data/wb/*.csv`, `data/ozon/*.csv` и `data/разметка.csv`, печатает три
+Читает `data/wb/*.csv`, `data/ozon/*.csv` и сид-разметку из `data/`, печатает три
 отчёта — полнота полей, целостность выгрузок, покрытие разметки — и по флагу
 `--write` складывает результат в `data/products.jsonl` и `data/labels.jsonl`.
 
@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import sys
 from collections import Counter
 from pathlib import Path
 
@@ -25,8 +24,8 @@ from crossmarket.extraction.scraped import iter_dumps
 from crossmarket.models import Label, Marketplace, Product
 from crossmarket.storage.jsonl import DATA_DIR, append_label, append_product
 
-SEED_FILE = "разметка.csv"
-SEED_COLUMNS = {"wb": "вб", "ozon": "озон", "result": "result", "comment": "comment"}
+SEED_FILE = "разметка_2.csv"
+SEED_COLUMNS = {"wb": "wb", "ozon": "ozon", "result": "result", "comment": "comment"}
 MARKETPLACES: tuple[Marketplace, ...] = ("wb", "ozon")
 
 REQUIRED_FIELDS = ("title", "price_rub", "category", "attributes", "description")
@@ -66,9 +65,24 @@ class Dumps:
 
 
 def load_seed(path: Path) -> list[dict[str, str]]:
-    """Сид-разметка: `вб;озон;result;comment`, где result 1 — матч, 0 — не матч."""
-    text = path.read_text(encoding="utf-8-sig")
-    return list(csv.DictReader(text.splitlines(), delimiter=";"))
+    """Сид-разметка: `wb;ozon;result;comment`, где result 1 — матч, 0 — не матч.
+
+    Кодировка у разных выгрузок сида разная (utf-8 с BOM или cp1251) и в теле
+    файла кириллица есть, поэтому кодировка подбирается перебором. Имена колонок
+    приводятся к нижнему регистру: они уже приезжали и строчными, и прописными.
+    """
+    raw = path.read_bytes()
+    for encoding in ("utf-8-sig", "cp1251"):
+        try:
+            text = raw.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        raise ValueError(f"{path.name}: не подошла ни одна кодировка из utf-8, cp1251.")
+
+    reader = csv.DictReader(text.splitlines(), delimiter=";")
+    return [{(k or "").strip().lower(): (v or "") for k, v in row.items()} for row in reader]
 
 
 def seed_to_label(row: dict[str, str]) -> Label:
@@ -193,9 +207,6 @@ def write_dataset(dumps: dict[str, Dumps], complete: list[Label], data_dir: Path
 
 
 def main() -> None:
-    # Консоль в cp1251, а данные русскоязычные.
-    sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
-
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
     parser.add_argument("--write", action="store_true", help="записать products.jsonl и labels.jsonl")
