@@ -10,3 +10,4 @@ data/
 plan/
 .claude/
 CLAUDE.md
+.vscode/settings.json

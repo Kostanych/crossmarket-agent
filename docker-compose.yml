@@ -2,7 +2,7 @@ name: crossmarket
 
 services:
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.19.0
     profiles: [infra]
     restart: unless-stopped
     ports:
@@ -12,7 +12,7 @@ services:
       - qdrant_data:/qdrant/storage
 
   clickhouse:
-    image: clickhouse/clickhouse-server:latest
+    image: clickhouse/clickhouse-server:26.7.3.19
     profiles: [infra]
     restart: unless-stopped
     ports:
