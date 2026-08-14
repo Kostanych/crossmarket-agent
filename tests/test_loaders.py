@@ -84,4 +84,10 @@ def test_payload_carries_only_filter_fields() -> None:
 
     assert payload["id"] == "1000000001"
     assert payload["price_rub"] == 496
-    assert set(payload) == {"marketplace", "id", "category", "price_rub"}
+    assert set(payload) == {"marketplace", "id", "category", "price_rub", "synthetic"}
+
+
+def test_distractors_are_flagged_in_payload() -> None:
+    """Без флага придуманную карточку не отличить от настоящей ни в выдаче, ни в отчёте."""
+    assert qdrant.payload_of(_product(), synthetic=True)["synthetic"] is True
+    assert qdrant.payload_of(_product())["synthetic"] is False

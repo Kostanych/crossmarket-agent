@@ -23,7 +23,8 @@ def index_products(
     marketplace: Marketplace,
     products: list[Product],
     composition: str = DEFAULT_COMPOSITION,
+    synthetic: bool = False,
 ) -> int:
     """Посчитать векторы для карточек площадки и залить их в коллекцию."""
     vectors = encode_passages([product_text(product, composition) for product in products])
-    return qdrant.upsert_products(client, marketplace, products, vectors)
+    return qdrant.upsert_products(client, marketplace, products, vectors, synthetic)

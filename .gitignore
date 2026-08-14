@@ -11,3 +11,5 @@ plan/
 .claude/
 CLAUDE.md
 .vscode/settings.json
+evals/results.md
+evals/distractors.jsonl

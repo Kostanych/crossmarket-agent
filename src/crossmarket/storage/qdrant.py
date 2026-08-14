@@ -53,12 +53,25 @@ def ensure_collection(client: QdrantClient, marketplace: Marketplace) -> str:
     return name
 
 
-def payload_of(product: Product) -> dict[str, Any]:
+def drop_collection(client: QdrantClient, marketplace: Marketplace) -> None:
+    """Снести коллекцию площадки. Нужно, когда состав корпуса меняется целиком."""
+    name = QDRANT_COLLECTIONS[marketplace]
+    if client.collection_exists(name):
+        client.delete_collection(name)
+
+
+def payload_of(product: Product, synthetic: bool = False) -> dict[str, Any]:
+    """Поля точки. `synthetic` помечает дистрактор — придуманную карточку-фон.
+
+    Флаг нужен, чтобы дистракторы можно было исключить из выдачи и чтобы в
+    README честно считалось, сколько документов корпуса настоящие.
+    """
     return {
         "marketplace": product.marketplace,
         "id": product.id,
         "category": product.category,
         "price_rub": product.price_rub,
+        "synthetic": synthetic,
     }
 
 
@@ -67,13 +80,18 @@ def upsert_products(
     marketplace: Marketplace,
     products: list[Product],
     vectors: ndarray,
+    synthetic: bool = False,
 ) -> int:
     """Залить карточки с готовыми векторами. Порядок `vectors` — как у `products`."""
     from qdrant_client.models import PointStruct
 
     name = ensure_collection(client, marketplace)
     points = [
-        PointStruct(id=point_id(product.marketplace, product.id), vector=vector.tolist(), payload=payload_of(product))
+        PointStruct(
+            id=point_id(product.marketplace, product.id),
+            vector=vector.tolist(),
+            payload=payload_of(product, synthetic),
+        )
         for product, vector in zip(products, vectors, strict=True)
     ]
     client.upsert(collection_name=name, points=points)

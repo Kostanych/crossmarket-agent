@@ -20,6 +20,7 @@ import json
 from pathlib import Path
 
 from crossmarket.config import EMBEDDING_MODEL, QDRANT_COLLECTIONS
+from crossmarket.distractors import load_distractors
 from crossmarket.embedding import COMPOSITIONS, DEFAULT_COMPOSITION, encode_queries
 from crossmarket.indexing import index_products
 from crossmarket.storage import qdrant
@@ -94,33 +95,45 @@ def print_summary(results: list[dict], corpus_size: int) -> dict[str, float]:
     return metrics
 
 
-def log_to_mlflow(metrics: dict[str, float], composition: str, cases: int, corpus_size: int) -> None:
+def log_to_mlflow(metrics: dict[str, float], composition: str, cases: int, corpus_size: int, distractors: int) -> None:
     import mlflow
 
+    run_name = f"{composition}+{distractors}bg" if distractors else composition
     mlflow.set_experiment("retrieval_wb")
-    with mlflow.start_run(run_name=composition):
+    with mlflow.start_run(run_name=run_name):
         mlflow.log_params(
             {
                 "embedding_model": EMBEDDING_MODEL,
                 "document_text": composition,
                 "collection": QDRANT_COLLECTIONS["wb"],
                 "corpus_size": corpus_size,
+                "distractors": distractors,
                 "questions": cases,
             }
         )
         mlflow.log_metrics(metrics)
 
 
-def reindex(composition: str) -> int:
+def reindex(composition: str, with_distractors: bool) -> tuple[int, int]:
     """Перезалить коллекцию ВБ под этот состав текста.
 
-    Без переиндексации метрика мерила бы то, что осталось в базе от прошлого
-    прогона: сравниваются составы, а состав живёт в векторах, не в запросе.
+    Коллекция каждый раз пересоздаётся: иначе дистракторы от прошлого прогона
+    остались бы в корпусе и прогон «без фона» мерил бы не то, что заявлено.
+    Без переиндексации метрика мерила бы состав текста прошлого прогона —
+    состав живёт в векторах, а не в запросе.
     """
-    products = [product for product in load_products().values() if product.marketplace == "wb"]
+    real = [product for product in load_products().values() if product.marketplace == "wb"]
     client = qdrant.connect()
-    print(f"\n=== {composition}: переиндексирую {len(products)} карточек ВБ…")
-    return index_products(client, "wb", products, composition)
+    qdrant.drop_collection(client, "wb")
+
+    print(f"\n=== {composition}{', с фоном' if with_distractors else ''}: индексирую {len(real)} карточек ВБ…")
+    index_products(client, "wb", real, composition)
+
+    background = load_distractors() if with_distractors else []
+    if background:
+        print(f"    плюс {len(background)} дистракторов")
+        index_products(client, "wb", background, composition, synthetic=True)
+    return len(real) + len(background), len(background)
 
 
 def print_comparison(summary: dict[str, dict[str, float]]) -> None:
@@ -145,6 +158,7 @@ def main() -> None:
         default=[DEFAULT_COMPOSITION],
         help="составы текста; каждый переиндексируется и логируется отдельным прогоном",
     )
+    parser.add_argument("--distractors", action="store_true", help="добить корпус придуманным фоном")
     parser.add_argument("--no-mlflow", action="store_true", help="только stdout")
     args = parser.parse_args()
 
@@ -152,13 +166,13 @@ def main() -> None:
     summary: dict[str, dict[str, float]] = {}
 
     for composition in args.text:
-        corpus_size = reindex(composition)
+        corpus_size, background = reindex(composition, args.distractors)
         results = evaluate(cases, args.limit)
         print_cases(results)
         metrics = print_summary(results, corpus_size)
-        summary[composition] = metrics
+        summary[f"{composition}+bg" if background else composition] = metrics
         if not args.no_mlflow:
-            log_to_mlflow(metrics, composition, len(cases), corpus_size)
+            log_to_mlflow(metrics, composition, len(cases), corpus_size, background)
 
     if len(summary) > 1:
         print_comparison(summary)

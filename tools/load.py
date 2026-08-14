@@ -20,6 +20,7 @@ import argparse
 from collections import defaultdict
 
 from crossmarket.config import CLICKHOUSE_DB, CLICKHOUSE_TABLE, QDRANT_COLLECTIONS
+from crossmarket.distractors import load_distractors
 from crossmarket.embedding import COMPOSITIONS, DEFAULT_COMPOSITION
 from crossmarket.indexing import index_products
 from crossmarket.models import Marketplace, Product
@@ -44,8 +45,12 @@ def load_clickhouse(products: list[Product]) -> None:
     print(f"ClickHouse {CLICKHOUSE_DB}.{CLICKHOUSE_TABLE}: залито {written}, всего в таблице {total}")
 
 
-def load_qdrant(grouped: dict[Marketplace, list[Product]], composition: str) -> None:
+def load_qdrant(grouped: dict[Marketplace, list[Product]], composition: str, with_distractors: bool) -> None:
     client = qdrant.connect()
+    if with_distractors:
+        background = load_distractors()
+        index_products(client, "wb", background, composition, synthetic=True)
+        print(f"Qdrant {QDRANT_COLLECTIONS['wb']}: залито {len(background)} дистракторов")
     for marketplace in MARKETPLACES:
         products = grouped.get(marketplace, [])
         if not products:
@@ -65,6 +70,7 @@ def main() -> None:
         default=DEFAULT_COMPOSITION,
         help="состав текста карточки в векторе",
     )
+    parser.add_argument("--distractors", action="store_true", help="добить коллекцию ВБ придуманным фоном")
     args = parser.parse_args()
 
     products = list(load_products().values())
@@ -75,7 +81,7 @@ def main() -> None:
     if args.only != "qdrant":
         load_clickhouse(products)
     if args.only != "clickhouse":
-        load_qdrant(by_marketplace(products), args.text)
+        load_qdrant(by_marketplace(products), args.text, args.distractors)
 
 
 main()
