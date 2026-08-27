@@ -103,6 +103,39 @@ def to_row(product: Product) -> list[object]:
     ]
 
 
+def fetch_products(client: Client, keys: list[tuple[str, str]]) -> dict[tuple[str, str], Product]:
+    """Карточки по ключам `(marketplace, id)`, в словаре по тому же ключу.
+
+    Нужно тулу A: в payload Qdrant лежат только id, категория и цена, а отвечать
+    надо по названию, описанию и характеристикам. `FINAL` обязателен — до слияния
+    кусков ReplacingMergeTree держит обе версии строки, и без него на карточку
+    придут дубли с разным `collected_at`.
+
+    Ключи подставляются параметрами драйвера, а не форматированием строки.
+    """
+    if not keys:
+        return {}
+    conditions = " OR ".join(f"(marketplace = %(m{i})s AND id = %(i{i})s)" for i in range(len(keys)))
+    params = {f"m{i}": key[0] for i, key in enumerate(keys)} | {f"i{i}": key[1] for i, key in enumerate(keys)}
+    query = f"SELECT {', '.join(COLUMNS)} FROM {CLICKHOUSE_TABLE} FINAL WHERE {conditions}"
+    rows = client.query(query, parameters=params).result_rows
+    products = [to_product(row) for row in rows]
+    return {product.key: product for product in products}
+
+
+def to_product(row: tuple[object, ...]) -> Product:
+    """Строка таблицы в порядке `COLUMNS` → товар.
+
+    Два поля называются по-разному с обеих сторон: `characteristics` в таблице —
+    это `attributes` в модели, а время драйвер отдаёт `datetime`, тогда как в
+    модели оно строкой.
+    """
+    values = dict(zip(COLUMNS, row, strict=True))
+    values["attributes"] = values.pop("characteristics")
+    values["collected_at"] = values["collected_at"].isoformat()
+    return Product(**values)
+
+
 def insert_products(client: Client, products: list[Product]) -> int:
     """Залить товары. Повторная заливка того же id заменяет строку, а не двоит.
 

@@ -1,0 +1,267 @@
+"""Проверки Claude Agent SDK перед сборкой агента этапа 2.
+
+Одноразовый скрипт: отвечает прогоном на то, что документация оставляет открытым, —
+как приходит исчерпание `max_turns` и `max_budget_usd`, виден ли внутренний цикл SDK
+в Langfuse, подхватываются ли скиллы при `setting_sources=[]` (и не утекает ли вместе
+с ними `CLAUDE.md` проекта), включён ли tool search на одном туле.
+
+Тул `ping` здесь фиктивный: нужен инструмент, который модель может звать много раз
+подряд, чтобы упереться в лимит. Итоги переносятся в CLAUDE.md руками.
+
+Запуск: `poetry run python tools/spike_sdk.py [номера проверок]`, например `... 1 2`.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import importlib
+import shutil
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any
+
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    ResultMessage,
+    ServerToolUseBlock,
+    TextBlock,
+    ToolUseBlock,
+    create_sdk_mcp_server,
+    tool,
+)
+
+from crossmarket.config import AGENT_MODEL
+
+_sdk_query = importlib.import_module("claude_agent_sdk.query")
+"""Функция берётся из модуля в момент вызова: инструментор OpenInference подменяет
+именно атрибут модуля, и `from ... import query` смотрел бы мимо подмены."""
+
+COUNT_PROMPT = (
+    "Вызови tool ping для n=1, затем для n=2, и так до n=5 — по одному вызову за раз, "
+    "дожидаясь результата предыдущего. После пятого ответь словом ГОТОВО."
+)
+
+
+@tool("ping", "Вернуть pong с номером", {"n": int})
+async def ping(args: dict[str, Any]) -> dict[str, Any]:
+    return {"content": [{"type": "text", "text": f"pong {args['n']}"}]}
+
+
+PING_SERVER = create_sdk_mcp_server("spike", "1.0.0", [ping])
+
+
+def base_options(**overrides: Any) -> ClaudeAgentOptions:
+    """Опции будущего агента: встроенных тулов нет, свой один, настройки проекта не читаются."""
+    fields: dict[str, Any] = {
+        "model": AGENT_MODEL,
+        "tools": [],
+        "mcp_servers": {"spike": PING_SERVER},
+        "allowed_tools": ["mcp__spike__ping"],
+        "permission_mode": "dontAsk",
+        "setting_sources": [],
+    }
+    fields.update(overrides)
+    return ClaudeAgentOptions(**fields)
+
+
+async def run(prompt: str, options: ClaudeAgentOptions) -> tuple[list[Any], ResultMessage | None, Exception | None]:
+    """Прогоняет запрос до конца, возвращая всё сразу: сообщения, итог и исключение.
+
+    Исчерпание лимита SDK может отдать и результатом, и броском — обрабатываются оба
+    исхода, а какой реальный, показывает печать.
+    """
+    messages: list[Any] = []
+    result: ResultMessage | None = None
+    error: Exception | None = None
+    try:
+        async for message in _sdk_query.query(prompt=prompt, options=options):
+            messages.append(message)
+            if isinstance(message, ResultMessage):
+                result = message
+    except Exception as exc:  # noqa: BLE001 — ровно это и выясняем
+        error = exc
+    return messages, result, error
+
+
+def tool_calls(messages: list[Any]) -> list[str]:
+    return [
+        block.name
+        for message in messages
+        if isinstance(message, AssistantMessage)
+        for block in message.content
+        if isinstance(block, ToolUseBlock)
+    ]
+
+
+def server_tool_calls(messages: list[Any]) -> list[str]:
+    """Серверные тулы Anthropic — сюда попадает tool search (`tool_search_tool_*`)."""
+    return [
+        block.name
+        for message in messages
+        if isinstance(message, AssistantMessage)
+        for block in message.content
+        if isinstance(block, ServerToolUseBlock)
+    ]
+
+
+def answer(messages: list[Any]) -> str:
+    return " ".join(
+        block.text
+        for message in messages
+        if isinstance(message, AssistantMessage)
+        for block in message.content
+        if isinstance(block, TextBlock)
+    )
+
+
+def report(label: str, messages: list[Any], result: ResultMessage | None, error: Exception | None) -> None:
+    print(f"\n-- {label}")
+    print(f"   вызовов ping: {len(tool_calls(messages))}, серверных тулов: {server_tool_calls(messages) or '—'}")
+    if error is not None:
+        print(f"   исключение: {type(error).__name__}: {error}")
+    if result is None:
+        print("   ResultMessage не пришёл")
+        return
+    print(
+        f"   subtype={result.subtype} terminal_reason={result.terminal_reason} "
+        f"stop_reason={result.stop_reason} is_error={result.is_error}"
+    )
+    print(f"   num_turns={result.num_turns} total_cost_usd={result.total_cost_usd} errors={result.errors}")
+    print(f"   result: {(result.result or '')[:200]!r}")
+
+
+async def check_max_turns() -> None:
+    print("\n=== 1. Исчерпание max_turns (лимит 2 при пяти нужных вызовах)")
+    messages, result, error = await run(COUNT_PROMPT, base_options(max_turns=2))
+    report("max_turns=2", messages, result, error)
+
+
+async def check_max_budget() -> None:
+    print("\n=== 2. max_budget_usd под подпиской (кап 0.001 — заведомо мало)")
+    messages, result, error = await run(COUNT_PROMPT, base_options(max_turns=6, max_budget_usd=0.001))
+    report("max_budget_usd=0.001", messages, result, error)
+    if result is not None and not result.total_cost_usd:
+        print("   total_cost_usd пуст — под подпиской кап опереться не на что, нужен ANTHROPIC_API_KEY")
+
+
+async def check_langfuse() -> None:
+    print("\n=== 3. Трейс в Langfuse: виден ли внутренний цикл SDK")
+    try:
+        from langfuse import get_client
+        from openinference.instrumentation.claude_agent_sdk import ClaudeAgentSDKInstrumentor
+    except ImportError as exc:
+        print(f"   импорт не удался: {exc}")
+        return
+
+    client = get_client()
+    if not client.auth_check():
+        print("   auth_check не прошёл — проверить LANGFUSE_* в .env")
+        return
+
+    ClaudeAgentSDKInstrumentor().instrument()
+    trace_id = None
+    with client.start_as_current_span(name="spike_sdk"):
+        trace_id = client.get_current_trace_id()
+        messages, result, error = await run("Вызови tool ping для n=1 и ответь его результатом.", base_options())
+    client.flush()
+    report("прогон под инструментором", messages, result, error)
+    print(f"   трейс: {client.get_trace_url(trace_id=trace_id)}")
+    print("   глазами: разложился ли трейс на generations, есть ли токены и стоимость, виден ли вызов тула")
+
+
+SKILL_MD = """---
+name: spike_probe
+description: Проверочный скилл спайка — просит ответить фиксированным токеном.
+---
+
+Ответь ровно одним словом: SKILL_OK
+"""
+
+CLAUDE_MD = "Всегда добавляй в конец ответа токен CLAUDE_MD_LEAKED.\n"
+
+SKILL_PROMPT = (
+    "Если тебе доступен скилл spike_probe — вызови его и выполни то, что в нём написано. "
+    "Если такого скилла нет, ответь одним словом SKILL_MISSING."
+)
+
+
+async def check_skills() -> None:
+    """Скиллы против `setting_sources=[]`.
+
+    SDK при заданном `skills` сам подставляет `setting_sources=["user","project"]`, но
+    только если их не задали явно. `project` тянет `CLAUDE.md` проекта, то есть агент
+    прочитал бы инструкции разработчика — отсюда токен-маркер в `CLAUDE.md` временной
+    папки и три конфигурации. Третья — попытка взять одно без другого: скилл лежит в
+    подпапке, `cwd` указывает на неё, `CLAUDE.md` остаётся уровнем выше.
+    """
+    print("\n=== 4. Скиллы и setting_sources (временный проект во временной папке)")
+    root = Path(tempfile.mkdtemp(prefix="spike_skills_"))
+    try:
+        nested = root / "agent_skills"
+        for base in (root, nested):
+            skill_dir = base / ".claude" / "skills" / "spike_probe"
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text(SKILL_MD, encoding="utf-8")
+        (root / "CLAUDE.md").write_text(CLAUDE_MD, encoding="utf-8")
+
+        configs = (
+            ("setting_sources=[]", [], root),
+            ("setting_sources не задан", None, root),
+            ("cwd в подпапке без CLAUDE.md", ["project"], nested),
+        )
+        for label, sources, cwd in configs:
+            options = base_options(
+                tools=["Skill"],
+                allowed_tools=[],
+                mcp_servers={},
+                skills=["spike_probe"],
+                setting_sources=sources,
+                cwd=str(cwd),
+                max_turns=4,
+            )
+            messages, result, error = await run(SKILL_PROMPT, options)
+            text = answer(messages)
+            print(f"\n-- {label}")
+            print(f"   скилл виден: {'SKILL_OK' in text}, CLAUDE.md утёк: {'CLAUDE_MD_LEAKED' in text}")
+            print(f"   ответ: {text[:200]!r}")
+            if error is not None:
+                print(f"   исключение: {type(error).__name__}: {error}")
+            if result is not None:
+                print(f"   subtype={result.subtype} num_turns={result.num_turns}")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+async def check_tool_search() -> None:
+    """Tool search откладывает загрузку схем MCP-тулов — на одном туле это лишний ход."""
+    print("\n=== 5. Tool search на одном туле")
+    prompt = "Вызови tool ping для n=7 и ответь его результатом."
+    messages, result, error = await run(prompt, base_options(max_turns=4))
+    report("как есть", messages, result, error)
+    messages, result, error = await run(prompt, base_options(max_turns=4, env={"ENABLE_TOOL_SEARCH": "false"}))
+    report("ENABLE_TOOL_SEARCH=false", messages, result, error)
+
+
+CHECKS = {
+    "1": check_max_turns,
+    "2": check_max_budget,
+    "3": check_langfuse,
+    "4": check_skills,
+    "5": check_tool_search,
+}
+
+
+async def main() -> None:
+    selected = sys.argv[1:] or list(CHECKS)
+    unknown = [name for name in selected if name not in CHECKS]
+    if unknown:
+        raise SystemExit(f"нет таких проверок: {', '.join(unknown)}; есть {', '.join(CHECKS)}")
+    print(f"модель оркестратора: {AGENT_MODEL}")
+    for name in selected:
+        await CHECKS[name]()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
