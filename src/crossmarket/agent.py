@@ -1,14 +1,12 @@
 """Оркестратор этапа 2: агент на Claude Agent SDK с одним тулом — поиском по ВБ.
 
-**Запрет live-fetch исполнен конфигурацией, а не промптом.** `tools=[]` убирает
-встроенные `WebFetch`, `WebSearch`, `Bash` и `Read` из контекста агента, а
-`permission_mode="dontAsk"` не даёт исполниться ничему вне `allowed_tools`. Агент
-не может сходить по ссылке за живой ценой — не «не должен по инструкции».
+Запрет live-fetch исполнен конфигурацией: `tools=[]` убирает встроенные `WebFetch`,
+`WebSearch`, `Bash` и `Read` из контекста, `permission_mode="dontAsk"` не даёт
+исполниться ничему вне `allowed_tools`.
 
-Остановка детерминированная: `max_turns` и `max_budget_usd`, оба нативные.
-При исчерпании SDK и отдаёт `ResultMessage` с `subtype=error_max_turns` /
-`error_max_budget_usd`, и бросает исключение — обрабатывается и то и другое,
-наружу уходит явная пометка, каким лимитом оборвало.
+Остановка детерминированная — `max_turns` и `max_budget_usd`. При исчерпании SDK и
+отдаёт `ResultMessage` с `subtype=error_max_turns` / `error_max_budget_usd`, и
+бросает исключение; обрабатывается и то и другое.
 """
 
 from __future__ import annotations
@@ -57,6 +55,9 @@ SYSTEM_PROMPT = """Ты отвечаешь на вопросы о товарах
 
 Ценовое ограничение из вопроса передавай параметром price_max, а не фильтруй
 результат в уме.
+
+Называя товар, ставь рядом его идентификатор из выдачи в скобках: (id: 1234567).
+Цену указывай ровно ту, что в карточке, без округления.
 
 Отвечай по-русски и сразу по делу, без преамбул вроде «сейчас поищу». Что нашлось,
 цена, чем подходит. Цены — на дату снапшота, а не сегодняшние.
@@ -115,13 +116,11 @@ SERVER = create_sdk_mcp_server(SERVER_NAME, "1.0.0", [search_wb])
 
 
 def build_options(max_turns: int = AGENT_MAX_TURNS, max_budget_usd: float = AGENT_MAX_BUDGET_USD) -> ClaudeAgentOptions:
-    """Опции агента. Смысл каждого поля — в докстринге модуля, менять их вслепую нельзя.
+    """Опции агента. `tools`, `allowed_tools` и `permission_mode` — см. докстринг модуля.
 
-    `display="summarized"` в блоке thinking включает выдачу промежуточных рассуждений
-    текстом: у Opus 4.7+ по умолчанию `omitted`, то есть приходит блок с подписью и
-    пустым содержимым. Само рассуждение происходит в обоих случаях и в обоих
-    оплачивается — разница только в том, видим мы его или нет. А видеть надо: без него
-    в трейсе нет ответа на вопрос, почему агент пошёл на второй раунд поиска.
+    `display="summarized"` возвращает текст промежуточных рассуждений: по умолчанию у
+    Opus 4.7+ он `omitted`, то есть блок приходит с подписью и пустым содержимым.
+    Рассуждение оплачивается в обоих режимах, разница только в видимости.
     """
     return ClaudeAgentOptions(
         thinking={"type": "adaptive", "display": "summarized"},
@@ -157,7 +156,7 @@ class Answer:
         return bool(self.tool_calls)
 
 
-_LIMIT_SUBTYPES = {"error_max_turns": "max_turns", "error_max_budget_usd": "max_budget_usd"}
+LIMIT_SUBTYPES = {"error_max_turns": "max_turns", "error_max_budget_usd": "max_budget_usd"}
 
 
 def _result_text(block: ToolResultBlock) -> str:
@@ -176,13 +175,9 @@ def _result_text(block: ToolResultBlock) -> str:
 def collect(messages: list[Any], result: ResultMessage | None, error: Exception | None) -> Answer:
     """Сообщения прогона → плоский ответ.
 
-    Текст собирается из всех блоков ассистента, а не только из `result.result`:
-    при обрыве по лимиту `result` приходит пустым, и сказанное до обрыва иначе
-    потерялось бы.
-
-    Выдача тула забирается отдельно: eval-харнессу нужно знать, что агент видел,
-    а не только что он в итоге сказал. Рассуждения между раундами — туда же: они
-    единственное, что объясняет, почему агент пошёл искать второй раз.
+    Текст собирается из всех блоков ассистента, а не только из `result.result`: при
+    обрыве по лимиту `result` приходит пустым. Выдача тула и рассуждения забираются
+    отдельно — харнессу нужно знать, что агент видел, а не только что он сказал.
     """
     answer = Answer()
     for message in messages:
@@ -206,7 +201,7 @@ def collect(messages: list[Any], result: ResultMessage | None, error: Exception 
         answer.terminal_reason = result.terminal_reason
         answer.num_turns = result.num_turns
         answer.cost_usd = result.total_cost_usd or 0.0
-        answer.limit_hit = _LIMIT_SUBTYPES.get(result.subtype)
+        answer.limit_hit = LIMIT_SUBTYPES.get(result.subtype)
         if result.is_error:
             answer.error = "; ".join(result.errors or []) or result.subtype
     elif error is not None:
@@ -237,12 +232,10 @@ def instrument_langfuse() -> bool:
 
 
 def _log_thinking(text: str) -> None:
-    """Резюме рассуждения — отдельным спаном внутри активного спана прогона.
+    """Резюме рассуждения — спаном внутри активного спана прогона.
 
-    Вызывается по ходу разбора сообщений: в этот момент контекст, который завёл
-    инструментор, ещё активен, поэтому спан становится ребёнком `ClaudeAgentSDK.query`,
-    а не отдельным трейсом. Без этого в трейсе не видно, почему агент пошёл искать
-    второй раз.
+    Зовётся по ходу разбора сообщений: контекст инструментора ещё активен, поэтому
+    спан становится ребёнком `ClaudeAgentSDK.query`, а не отдельным трейсом.
     """
     if _langfuse is None:
         return

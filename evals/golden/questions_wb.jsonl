@@ -1,0 +1,61 @@
+{"id": "q01", "question": "чем измерить температуру не прикасаясь к предмету", "relevant_ids": ["1031962442"], "expected": "found", "split": "calibration"}
+{"id": "q02", "question": "чем наточить кухонные ножи дома", "relevant_ids": ["1109727323", "1078556232", "1119458669"], "expected": "found", "split": "calibration"}
+{"id": "q03", "question": "во что убрать сезонные вещи под кровать", "relevant_ids": ["1111018090"], "expected": "found", "split": "calibration"}
+{"id": "q04", "question": "чтобы кошка не драла углы и обои", "relevant_ids": ["1111347208"], "expected": "found", "split": "calibration"}
+{"id": "q05", "question": "как оттереть следы от скотча и наклеек", "relevant_ids": ["1126574254"], "expected": "found", "split": "test"}
+{"id": "q06", "question": "прибор проверить кислотность земли на грядке", "relevant_ids": ["1025757278", "1079162645"], "expected": "found", "split": "calibration"}
+{"id": "q07", "question": "на что поставить спираль от комаров чтобы не падала", "relevant_ids": ["1105317858", "1237816197"], "expected": "found", "split": "test"}
+{"id": "q08", "question": "чем побриться прямо в душе", "relevant_ids": ["1031237671"], "expected": "found", "split": "test"}
+{"id": "q09", "question": "куда вешать ключи у входной двери", "relevant_ids": ["1098820329"], "expected": "found", "split": "test"}
+{"id": "q10", "question": "чем почистить рыбу от чешуи", "relevant_ids": ["1069586516"], "expected": "found", "split": "calibration"}
+{"id": "q11", "question": "средство отбелить зубы дома", "relevant_ids": ["1114226484", "1068051480"], "expected": "found", "split": "calibration"}
+{"id": "q12", "question": "плюшевая игрушка персонаж из мультика про леди баг", "relevant_ids": ["1078513746"], "expected": "found", "split": "calibration"}
+{"id": "q13", "question": "чтобы ребёнок не открыл ящик комода", "relevant_ids": ["1104957681"], "expected": "found", "split": "calibration"}
+{"id": "q14", "question": "как убрать сопли у грудничка", "relevant_ids": ["1118877528"], "expected": "found", "split": "test"}
+{"id": "q15", "question": "фонарь во двор чтобы сам включался в темноте", "relevant_ids": ["1082468414", "1083237266"], "expected": "found", "split": "calibration"}
+{"id": "q16", "question": "куда девать мусорный пакет на кухне без ведра", "relevant_ids": ["1035687894"], "expected": "found", "split": "test"}
+{"id": "q17", "question": "чем нарезать овощи волнистыми ломтиками", "relevant_ids": ["1116451340"], "expected": "found", "split": "test"}
+{"id": "q18", "question": "поилка для собаки с фильтром воды", "relevant_ids": ["1038302598"], "expected": "found", "split": "test"}
+{"id": "q19", "question": "чтобы собака ела медленнее и не глотала кусками", "relevant_ids": ["1107563225"], "expected": "found", "split": "calibration"}
+{"id": "q20", "question": "чем отбить мясо перед жаркой", "relevant_ids": ["1107411538"], "expected": "found", "split": "calibration"}
+{"id": "q21", "question": "сумка в багажник чтобы вещи не катались", "relevant_ids": ["1100408519", "1066429371"], "expected": "found", "split": "test"}
+{"id": "q22", "question": "куда повесить лопаты и грабли в сарае", "relevant_ids": ["1065164870", "1080622819"], "expected": "found", "split": "calibration"}
+{"id": "q23", "question": "чем закрыть открытую бутылку вина", "relevant_ids": ["1067695924"], "expected": "found", "split": "calibration"}
+{"id": "q24", "question": "что надеть на глаза чтобы спать в самолёте", "relevant_ids": ["1106002065"], "expected": "found", "split": "test"}
+{"id": "q25", "question": "куда сложить инструменты в гараже", "relevant_ids": ["1083303932"], "expected": "found", "split": "calibration"}
+{"id": "q26", "question": "чем пробить дырки в листах для ежедневника", "relevant_ids": ["1096190966"], "expected": "found", "split": "calibration"}
+{"id": "q27", "question": "чтобы читать мелкий шрифт с увеличением", "relevant_ids": ["1237889986"], "expected": "found", "split": "test"}
+{"id": "q28", "question": "крем с пднр корейский увлажняющий", "relevant_ids": ["1237927469", "1237891263", "1237910716"], "expected": "found", "split": "calibration"}
+{"id": "a01", "question": "грузовой автотранспорт", "relevant_ids": [], "expected": "absent", "kind": "far", "split": "calibration"}
+{"id": "a02", "question": "на чём полететь в космос", "relevant_ids": [], "expected": "absent", "kind": "far", "split": "calibration"}
+{"id": "a03", "question": "чем построить дом", "relevant_ids": [], "expected": "absent", "kind": "far", "split": "calibration"}
+{"id": "a04", "question": "чем прокопать туннель в горе", "relevant_ids": [], "expected": "absent", "kind": "far", "split": "calibration"}
+{"id": "a05", "question": "чем набить татуировку", "relevant_ids": [], "expected": "absent", "kind": "far", "split": "test"}
+{"id": "a06", "question": "транспорт для передвижения", "relevant_ids": [], "expected": "absent", "kind": "far", "split": "test"}
+{"id": "a07", "question": "пожарное оборудование", "relevant_ids": [], "expected": "absent", "kind": "far", "split": "calibration"}
+{"id": "a08", "question": "на чём можно тренироваться боксёру", "relevant_ids": [], "expected": "absent", "kind": "far", "split": "test"}
+{"id": "a09", "question": "на чём можно прыгать высоко", "relevant_ids": [], "expected": "absent", "kind": "far", "split": "calibration"}
+{"id": "a10", "question": "чем разнообразить семейную жизнь", "relevant_ids": [], "expected": "absent", "kind": "far", "split": "calibration"}
+{"id": "a11", "question": "подушка для сна", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "test"}
+{"id": "a12", "question": "бассейн для сада", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "test"}
+{"id": "a13", "question": "в чём везти огнетушитель", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "calibration"}
+{"id": "a14", "question": "спрей против комаров", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "test"}
+{"id": "a15", "question": "камаз для песочницы", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "calibration"}
+{"id": "a16", "question": "чем подстричь собаку", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "calibration"}
+{"id": "a17", "question": "масляные краски для картин", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "calibration"}
+{"id": "a18", "question": "аэрогриль любой", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "calibration"}
+{"id": "a19", "question": "бальзамический соус", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "calibration"}
+{"id": "a20", "question": "шляпа вьетнамская треугольная", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "test"}
+{"id": "a21", "question": "вентилятор стационарный большой", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "calibration"}
+{"id": "a22", "question": "детский набор химика", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "calibration"}
+{"id": "a23", "question": "держатель туалетной бумаги", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "calibration"}
+{"id": "a24", "question": "в чём переносить полотенца", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "test"}
+{"id": "a25", "question": "лазерный уровень", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "test"}
+{"id": "a26", "question": "ванна стальная", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "calibration"}
+{"id": "a27", "question": "грипсы на мотоцикл", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "calibration"}
+{"id": "a28", "question": "чем покрасить стену", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "test"}
+{"id": "a29", "question": "ноутбук для работы", "relevant_ids": [], "expected": "absent", "kind": "far", "split": "test"}
+{"id": "a30", "question": "государственные печати", "relevant_ids": [], "expected": "absent", "kind": "far", "split": "calibration"}
+{"id": "a31", "question": "наушники мониторные", "relevant_ids": [], "expected": "absent", "kind": "far", "split": "test"}
+{"id": "a32", "question": "отдельное кресло для ребёнка в машину", "relevant_ids": [], "expected": "absent", "kind": "far", "split": "test"}
+{"id": "a33", "question": "запчасти для самолёта", "relevant_ids": [], "expected": "absent", "kind": "far", "split": "calibration"}

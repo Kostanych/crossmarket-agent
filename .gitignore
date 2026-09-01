@@ -14,3 +14,5 @@ CLAUDE.md
 evals/results.md
 evals/scores.csv
 evals/distractors.jsonl
+evals/runs/
+docs/
