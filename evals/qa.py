@@ -296,14 +296,19 @@ def regrade(use_mlflow: bool = False, name: str = "qa_wb") -> None:
 
 
 def report(rows: list[dict[str, Any]], limits: str, use_mlflow: bool, dump: Path, name: str = "qa_wb") -> None:
-    """Таблицы в stdout, markdown-отчёт, метрики в MLflow. Общее для прогона и перегрейда."""
+    """Таблицы в stdout, markdown-отчёт, метрики в MLflow. Общее для прогона и перегрейда.
+
+    В файл идут только агрегаты: построчные таблицы и ответы содержат названия и цены
+    настоящих карточек, а данных в репозитории нет. Смотреть их — в stdout и в дампе.
+    """
     cases = [row["case"] for row in rows]
-    tables = [cases_table(rows), summary_table(rows), strata_table(rows)]
+    aggregates = [summary_table(rows), strata_table(rows)]
+    screen = [cases_table(rows), *aggregates]
     if answers := absent_answers_table(rows):
-        tables.append(answers)
+        screen.append(answers)
     if violations := violations_table(rows):
-        tables.append(violations)
-    print_tables(tables)
+        screen.append(violations)
+    print_tables(screen)
 
     subtypes: dict[str, int] = {}
     for row in rows:
@@ -325,7 +330,7 @@ def report(rows: list[dict[str, Any]], limits: str, use_mlflow: bool, dump: Path
             "сплиты": split_summary(cases),
             "стоимость прогона": f"${total:.2f}",
         },
-        tables,
+        aggregates,
     )
     print(
         f"Отчёт: {path}, сырой прогон: {dump}"

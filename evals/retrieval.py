@@ -194,8 +194,8 @@ def run(
         rows = evaluate(cases, limit)
         labelled = [row for row in rows if row["recall"]]
 
-        tables = [cases_table(labelled), summary_table(labelled), scores_table(rows)]
-        print_tables(tables)
+        tables = [summary_table(labelled), scores_table(rows)]
+        print_tables([cases_table(labelled), *tables])
         print(f"\nвопросов с разметкой {len(labelled)}, корпус {corpus_size} карточек, модель {EMBEDDING_MODEL}")
 
         summary[f"{composition}+bg" if background else composition] = metrics_of(labelled)
