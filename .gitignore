@@ -16,3 +16,4 @@ evals/scores.csv
 evals/distractors.jsonl
 evals/runs/
 docs/
+reports/
