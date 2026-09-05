@@ -31,15 +31,18 @@ def read_dump(marketplace: Marketplace, path: Path, url: str = "") -> Product:
 
 
 def iter_dumps(marketplace: Marketplace, root: Path) -> Iterator[tuple[Path, Product]]:
-    """Все читаемые выгрузки площадки.
+    """Все читаемые выгрузки площадки, включая разложенные по подпапкам.
 
     Чужой файл в папке или обрезанная выгрузка молча пропускаются: файлов
     сотни, и один битый не повод останавливать разметку.
+
+    Обход рекурсивный: партии сбора складываются в подпапки (`wb/v1/`), и
+    плоский `glob` перестал бы их видеть вместе с половиной корпуса.
     """
     folder = root / marketplace
     if not folder.is_dir():
         return
-    for path in sorted(folder.glob("*.csv")):
+    for path in sorted(folder.rglob("*.csv")):
         try:
             yield path, read_dump(marketplace, path)
         except _BROKEN_DUMP:

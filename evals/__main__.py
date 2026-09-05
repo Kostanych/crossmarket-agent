@@ -1,9 +1,10 @@
 """CLI харнесса: `python -m evals <сюита>`.
 
-    python -m evals check [--assign] [--categories]   валидация golden-set, без LLM
+    python -m evals check [--assign] [--categories] [--pairs]   валидация golden-set, без LLM
     python -m evals retrieval [--text СОСТАВ...]      recall@k и MRR
     python -m evals qa [--first N] [--verbose]        end-to-end прогон агента, платный
-    python -m evals all                              обе сюиты подряд — цель `make eval`
+    python -m evals sql [--first N] [--verbose]      text2sql к ClickHouse, платный
+    python -m evals all                              все три сюиты — цель `make eval`
 
 Прогресс и таблицы идут в stdout, отчёт — в `evals/reports/`, метрики — в MLflow.
 """
@@ -16,12 +17,13 @@ from pathlib import Path
 
 from crossmarket.embedding import COMPOSITIONS, DEFAULT_COMPOSITION
 from evals import check, qa, retrieval
+from evals import sql as sql_suite
 from evals.cases import GOLDEN_FILE, load_cases
 
 
-def _run_name(tag: str | None) -> str:
+def _run_name(base: str, tag: str | None) -> str:
     """Имя отчёта и дампа. Без тега — основной прогон, с тегом — сравнительный рядом."""
-    return f"qa_wb_{tag}" if tag else "qa_wb"
+    return f"{base}_{tag}" if tag else base
 
 
 def _cases(path: Path, first: int | None = None, expected: str | None = None) -> list:
@@ -44,6 +46,7 @@ def main() -> None:
     checker = suites.add_parser("check", parents=[common], help="проверить golden-set, не тратя денег")
     checker.add_argument("--assign", action="store_true", help="проставить сплит новым кейсам")
     checker.add_argument("--categories", action="store_true", help="напечатать категории корпуса")
+    checker.add_argument("--pairs", action="store_true", help="сплиты размеченных пар ВБ↔Озон")
 
     finder = suites.add_parser("retrieval", parents=[common], help="recall@k и MRR")
     finder.add_argument("--limit", type=int, default=max(retrieval.K_VALUES), help="глубина выдачи")
@@ -63,18 +66,29 @@ def main() -> None:
     asker.add_argument("--verbose", action="store_true", help="печатать ответы, рассуждения и запросы")
     asker.add_argument("--tag", help="суффикс отчёта и дампа: сравнительный прогон не затрёт основной")
 
+    sqler = suites.add_parser("sql", parents=[common], help="text2sql к ClickHouse (платный)")
+    sqler.add_argument("--first", type=int, help="прогнать только первые N вопросов")
+    sqler.add_argument("--max-turns", type=int, default=None)
+    sqler.add_argument("--budget", type=float, default=None)
+    sqler.add_argument("--verbose", action="store_true", help="печатать SQL агента и ответы")
+    sqler.add_argument("--tag", help="суффикс отчёта и дампа")
+
     regrader = suites.add_parser("regrade", parents=[common], help="пересчитать метрики сохранённого прогона, без LLM")
+    regrader.add_argument(
+        "--of", dest="regrade_suite", choices=("qa", "sql"), default="qa", help="какую сюиту пересчитать"
+    )
     regrader.add_argument("--tag", help="какой прогон пересчитать")
-    suites.add_parser("all", parents=[common], help="retrieval + qa, корпус с фоном")
+    suites.add_parser("all", parents=[common], help="retrieval + qa + sql, корпус с фоном")
 
     args = parser.parse_args()
     use_mlflow = not args.no_mlflow
 
     if args.suite == "check":
-        raise SystemExit(check.run(args.golden, assign=args.assign, categories=args.categories))
+        raise SystemExit(check.run(args.golden, assign=args.assign, categories=args.categories, pairs=args.pairs))
 
     if args.suite == "regrade":
-        qa.regrade(use_mlflow, name=_run_name(args.tag))
+        module = sql_suite if args.regrade_suite == "sql" else qa
+        module.regrade(use_mlflow, name=_run_name("sql_c" if args.regrade_suite == "sql" else "qa_wb", args.tag))
         return
 
     if args.suite in ("retrieval", "all"):
@@ -99,7 +113,26 @@ def main() -> None:
             budget=getattr(args, "budget", None) or AGENT_MAX_BUDGET_USD,
             verbose=getattr(args, "verbose", False),
             use_mlflow=use_mlflow,
-            name=_run_name(getattr(args, "tag", None)),
+            name=_run_name("qa_wb", getattr(args, "tag", None)),
+        )
+
+    if args.suite in ("sql", "all"):
+        from crossmarket.agent import instrument_langfuse
+        from crossmarket.config import AGENT_MAX_BUDGET_USD, AGENT_MAX_TURNS
+        from evals.cases import SQL_GOLDEN_FILE, load_sql_cases
+
+        first = getattr(args, "first", None)
+        cases = load_sql_cases(SQL_GOLDEN_FILE)
+        cases = cases[:first] if first else cases
+        traced = "включён" if instrument_langfuse() else "нет ключей"
+        print(f"\nSQL-вопросов {len(cases)}, трейсинг Langfuse: {traced}\n")
+        sql_suite.run(
+            cases,
+            limit_turns=getattr(args, "max_turns", None) or AGENT_MAX_TURNS,
+            budget=getattr(args, "budget", None) or AGENT_MAX_BUDGET_USD,
+            verbose=getattr(args, "verbose", False),
+            use_mlflow=use_mlflow,
+            name=_run_name("sql_c", getattr(args, "tag", None)),
         )
 
 

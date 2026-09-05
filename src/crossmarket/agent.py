@@ -1,4 +1,4 @@
-"""Оркестратор этапа 2: агент на Claude Agent SDK с одним тулом — поиском по ВБ.
+"""Агент на Claude Agent SDK и его тулы: поиск по ВБ (A) и SQL к снапшоту (C).
 
 Запрет live-fetch исполнен конфигурацией: `tools=[]` убирает встроенные `WebFetch`,
 `WebSearch`, `Bash` и `Read` из контекста, `permission_mode="dontAsk"` не даёт
@@ -7,6 +7,14 @@
 Остановка детерминированная — `max_turns` и `max_budget_usd`. При исчерпании SDK и
 отдаёт `ResultMessage` с `subtype=error_max_turns` / `error_max_budget_usd`, и
 бросает исключение; обрабатывается и то и другое.
+
+Тулы регистрируются в одном MCP-сервере, а разводятся по `allowed_tools`: на этапе 4
+у сюиты C виден только `execute_sql`, роутинг между тулами появится на этапе 5.
+
+Знание о схеме БД лежит в `skills/clickhouse-sql/SKILL.md` и на этом этапе читается в
+системный промпт. Механизм скиллов SDK не включён намеренно: заданный `skills`
+проставляет `setting_sources=["user","project"]`, и вместе со скиллом агент подтянул
+бы `CLAUDE.md` репозитория — там разбор eval, которым он оценивается.
 """
 
 from __future__ import annotations
@@ -14,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import (
@@ -31,6 +40,7 @@ from claude_agent_sdk import (
 
 from crossmarket.config import AGENT_MAX_BUDGET_USD, AGENT_MAX_TURNS, AGENT_MODEL, RETRIEVAL_MIN_SCORE
 from crossmarket.retrieval import format_hits, search_products
+from crossmarket.sql import format_result, run_sql
 from crossmarket.storage import clickhouse, qdrant
 
 _langfuse: Any = None
@@ -44,6 +54,22 @@ _sdk_query = importlib.import_module("claude_agent_sdk.query")
 
 SERVER_NAME = "crossmarket"
 SEARCH_TOOL = f"mcp__{SERVER_NAME}__search_wb"
+SQL_TOOL = f"mcp__{SERVER_NAME}__execute_sql"
+
+SKILL_FILE = Path(__file__).resolve().parents[2] / "skills" / "clickhouse-sql" / "SKILL.md"
+
+
+def schema_doc(path: Path = SKILL_FILE) -> str:
+    """Знание о схеме из SKILL.md, без YAML-фронтматтера.
+
+    Фронтматтер — служебный заголовок для механизма скиллов; в промпте он был бы
+    шумом. Сам файл написан так, чтобы на этапе 5 уехать в SDK без правок.
+    """
+    text = path.read_text(encoding="utf-8")
+    if text.startswith("---"):
+        text = text.split("---", 2)[-1]
+    return text.strip()
+
 
 SYSTEM_PROMPT = """Ты отвечаешь на вопросы о товарах Wildberries по снапшоту базы.
 
@@ -112,11 +138,69 @@ async def search_wb(args: dict[str, Any]) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": format_hits(hits)}]}
 
 
-SERVER = create_sdk_mcp_server(SERVER_NAME, "1.0.0", [search_wb])
+SQL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "sql": {"type": "string", "description": "Один SELECT к таблице products. Не забудь FINAL."},
+    },
+    "required": ["sql"],
+}
 
 
-def build_options(max_turns: int = AGENT_MAX_TURNS, max_budget_usd: float = AGENT_MAX_BUDGET_USD) -> ClaudeAgentOptions:
+@tool(
+    "execute_sql",
+    "Выполнить SELECT по снапшоту товаров в ClickHouse и вернуть строки результата. "
+    "Считает агрегаты, количества, сортировки и сравнения цен по обеим площадкам.",
+    SQL_SCHEMA,
+)
+async def execute_sql(args: dict[str, Any]) -> dict[str, Any]:
+    """Обёртка над `crossmarket.sql`: ограничения и разбор ошибки живут там.
+
+    Драйвер синхронный и ходит по сети, поэтому запрос уезжает в поток — иначе он
+    заблокировал бы цикл событий, в котором SDK разговаривает с CLI.
+    """
+    result = await asyncio.to_thread(run_sql, _client("clickhouse"), args["sql"])
+    return {"content": [{"type": "text", "text": format_result(result)}]}
+
+
+SERVER = create_sdk_mcp_server(SERVER_NAME, "1.0.0", [search_wb, execute_sql])
+
+SQL_SYSTEM_PROMPT = f"""Ты отвечаешь на вопросы о товарах Wildberries и Ozon, переводя их
+в SQL к снапшоту базы и вызывая тул execute_sql.
+
+Единственный источник фактов — то, что вернул тул. Числа, которых нет в его выдаче, не
+существует: не прикидывай и не вспоминай из общих знаний. Считать в уме поверх выдачи
+тоже нельзя — если нужен ещё один агрегат, сделай ещё один запрос.
+
+Первым запросом отвечай ровно на заданный вопрос и тем разрезом, который в нём спрошен:
+спросили одно число — верни одно число, а не разбивку по площадкам. Дополнительную
+детализацию, если она к месту, бери отдельным запросом уже после ответа.
+
+Если запрос не выполнился, прочитай сообщение об ошибке, почини SQL и позови тул снова.
+
+Пустой результат — законный ответ: так и скажи, что под условие ничего не подходит.
+
+В ответе назови полученное число или строки явно, теми же значениями, что вернул тул,
+без округления сверх того, что уже сделал SQL.
+
+Отвечай по-русски и сразу по делу, без преамбул. Цены — на дату снапшота.
+
+Ниже — схема базы, ловушки этих данных и особенности диалекта ClickHouse.
+
+{schema_doc()}
+"""
+
+
+def build_options(
+    max_turns: int = AGENT_MAX_TURNS,
+    max_budget_usd: float = AGENT_MAX_BUDGET_USD,
+    system_prompt: str = SYSTEM_PROMPT,
+    allowed_tools: list[str] | None = None,
+) -> ClaudeAgentOptions:
     """Опции агента. `tools`, `allowed_tools` и `permission_mode` — см. докстринг модуля.
+
+    По умолчанию — конфигурация тула A: сюиты этапов 2 и 3 зовут `build_options()` без
+    аргументов. Сюита C передаёт свой промпт и свой список тулов.
 
     `display="summarized"` возвращает текст промежуточных рассуждений: по умолчанию у
     Opus 4.7+ он `omitted`, то есть блок приходит с подписью и пустым содержимым.
@@ -125,14 +209,24 @@ def build_options(max_turns: int = AGENT_MAX_TURNS, max_budget_usd: float = AGEN
     return ClaudeAgentOptions(
         thinking={"type": "adaptive", "display": "summarized"},
         model=AGENT_MODEL,
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         tools=[],
         mcp_servers={SERVER_NAME: SERVER},
-        allowed_tools=[SEARCH_TOOL],
+        allowed_tools=allowed_tools or [SEARCH_TOOL],
         permission_mode="dontAsk",
         setting_sources=[],
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
+    )
+
+
+def sql_options(max_turns: int = AGENT_MAX_TURNS, max_budget_usd: float = AGENT_MAX_BUDGET_USD) -> ClaudeAgentOptions:
+    """Конфигурация тула C: виден только `execute_sql`, промпт со схемой базы."""
+    return build_options(
+        max_turns=max_turns,
+        max_budget_usd=max_budget_usd,
+        system_prompt=SQL_SYSTEM_PROMPT,
+        allowed_tools=[SQL_TOOL],
     )
 
 

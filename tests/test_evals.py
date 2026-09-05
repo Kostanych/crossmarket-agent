@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from evals.cases import Case, assign_splits, validate
+from crossmarket.models import Label
+from evals.cases import Case, SqlCase, assign_splits, validate, validate_sql_cases
 from evals.grading import grade, parse_tool_output
 from evals.judge import Verdict, agreement
 from evals.retrieval import first_hit_rank, recall_at_k
@@ -234,3 +235,48 @@ def test_recall_counts_share_of_relevant_not_a_hit() -> None:
     assert recall_at_k(found, {"1", "2", "3"}, 1) == pytest.approx(1 / 3)
     assert first_hit_rank(found, {"2"}) == 3
     assert first_hit_rank(found, {"7"}) is None
+
+
+def test_sql_case_round_trip_drops_defaults() -> None:
+    case = SqlCase(id="c01", question="сколько всего?", sql="SELECT count() FROM products FINAL", kind="count")
+    assert case.to_dict() == {
+        "id": "c01",
+        "question": "сколько всего?",
+        "sql": "SELECT count() FROM products FINAL",
+        "kind": "count",
+    }
+    ordered = SqlCase(id="c02", question="топ-3", sql="SELECT 1", kind="topn", ordered=True, split="test")
+    assert SqlCase.from_dict(ordered.to_dict()) == ordered
+
+
+def test_sql_validate_catches_silent_breakage() -> None:
+    problems = validate_sql_cases(
+        [
+            SqlCase(id="c01", question="?", sql="SELECT 1", kind="count", split="test"),
+            SqlCase(id="c01", question="?", sql="SELECT 1", kind="count", split="test"),
+            SqlCase(id="c02", question="?", sql="   ", kind="count", split="test"),
+            SqlCase(id="c03", question="?", sql="SELECT 1", kind="", split="test"),
+            SqlCase(id="c04", question="?", sql="SELECT 1", kind="count"),
+        ]
+    )
+    assert any("повторяется" in p for p in problems)
+    assert any("нет эталонного SQL" in p for p in problems)
+    assert any("не указана страта" in p for p in problems)
+    assert any("сплит не проставлен" in p for p in problems)
+
+
+def test_pairs_get_the_same_split_rule_as_questions() -> None:
+    pairs = [Label(wb_id=f"{i:03d}", ozon_id=f"9{i:03d}", label="match") for i in range(10)]
+    pairs += [Label(wb_id=f"1{i:02d}", ozon_id=f"8{i:03d}", label="no_match", negative_kind="hard") for i in range(10)]
+    assign_splits(pairs)
+
+    by_stratum: dict[str, list[str]] = {}
+    for pair in pairs:
+        by_stratum.setdefault(pair.stratum, []).append(pair.split or "—")
+    assert set(by_stratum) == {"match", "no_match-hard"}
+    for splits in by_stratum.values():
+        assert splits.count("calibration") == 6
+
+    again = [Label(wb_id=p.wb_id, ozon_id=p.ozon_id, label=p.label, negative_kind=p.negative_kind) for p in pairs]
+    assign_splits(again)
+    assert [p.split for p in again] == [p.split for p in pairs]

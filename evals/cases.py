@@ -3,7 +3,9 @@
 Файл один на обе сюиты: retrieval берёт только `expected=found`, QA — все кейсы.
 
 Сплит хранится в файле, а не вычисляется при чтении: иначе добавление кейсов
-двигало бы границу, и кейс, отработанный в калибровке, мог уехать в тест.
+двигало бы границу, и кейс, отработанный в калибровке, мог уехать в тест. То же
+правило раздаёт сплит парам ВБ↔Озон (`evals/pairs.py`), поэтому `assign_splits`
+работает с протоколом, а не с `Case`.
 """
 
 from __future__ import annotations
@@ -12,14 +14,27 @@ import hashlib
 import json
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 GOLDEN_FILE = Path("evals/golden/questions_wb.jsonl")
+SQL_GOLDEN_FILE = Path("evals/golden/questions_sql.jsonl")
 
 Expected = Literal["found", "absent"]
 Split = Literal["calibration", "test"]
 
 CALIBRATION_SHARE = 0.6
+
+
+class Splittable(Protocol):
+    """Что нужно правилу разбиения: идентификатор, страта и место под сплит.
+
+    Сплит раздаётся и вопросам golden-set, и парам ВБ↔Озон
+    (`crossmarket.models.Label`).
+    """
+
+    id: str
+    stratum: str
+    split: Split | None
 
 
 @dataclass
@@ -52,6 +67,70 @@ class Case:
         return cls(**{k: v for k, v in raw.items() if k in known})
 
 
+@dataclass
+class SqlCase:
+    """Эталонный кейс тула C: вопрос и SQL, которым считается правильный ответ.
+
+    Эталон хранится запросом, а не строками результата: репозиторий публичный, данных
+    в нём нет, а цены и названия — это данные. Эталонный SQL исполняется в момент
+    прогона по тому же снапшоту, что видит агент.
+
+    `ordered` — значим ли порядок строк: у топ-N значим, у группировок нет.
+    """
+
+    id: str
+    question: str
+    sql: str
+    kind: str = ""
+    ordered: bool = False
+    split: Split | None = None
+    note: str = ""
+
+    @property
+    def stratum(self) -> str:
+        return self.kind or "—"
+
+    def to_dict(self) -> dict[str, Any]:
+        """Значения по умолчанию не пишутся: файл читается глазами при добавлении кейсов."""
+        return {key: value for key, value in asdict(self).items() if value not in ("", None, False)}
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> SqlCase:
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in raw.items() if k in known})
+
+
+def load_sql_cases(path: Path = SQL_GOLDEN_FILE) -> list[SqlCase]:
+    with path.open(encoding="utf-8") as fh:
+        return [SqlCase.from_dict(json.loads(line)) for line in fh if line.strip()]
+
+
+def save_sql_cases(cases: list[SqlCase], path: Path = SQL_GOLDEN_FILE) -> None:
+    with path.open("w", encoding="utf-8") as fh:
+        for case in cases:
+            fh.write(json.dumps(case.to_dict(), ensure_ascii=False) + "\n")
+
+
+def validate_sql_cases(cases: list[SqlCase]) -> list[str]:
+    """Что не так с golden-set тула C. Исполнимость SQL проверяется отдельно, в `check`."""
+    problems = []
+    seen: set[str] = set()
+    for case in cases:
+        if not case.id:
+            problems.append(f"кейс без идентификатора: {case.question[:50]}")
+        elif case.id in seen:
+            problems.append(f"{case.id}: идентификатор повторяется")
+        seen.add(case.id)
+
+        if not case.sql.strip():
+            problems.append(f"{case.id}: нет эталонного SQL")
+        if not case.kind:
+            problems.append(f"{case.id}: не указана страта")
+        if case.split not in ("calibration", "test"):
+            problems.append(f"{case.id}: сплит не проставлен")
+    return problems
+
+
 def load_cases(path: Path = GOLDEN_FILE, expected: Expected | None = None) -> list[Case]:
     with path.open(encoding="utf-8") as fh:
         cases = [Case.from_dict(json.loads(line)) for line in fh if line.strip()]
@@ -64,26 +143,26 @@ def save_cases(cases: list[Case], path: Path = GOLDEN_FILE) -> None:
             fh.write(json.dumps(case.to_dict(), ensure_ascii=False) + "\n")
 
 
-def _order_key(case: Case) -> str:
+def order_key(case: Splittable) -> str:
     """Хеш идентификатора: раздача не зависит от порядка, в котором дописывали вопросы."""
     return hashlib.blake2s(case.id.encode("utf-8"), digest_size=8).hexdigest()
 
 
-def assign_splits(cases: list[Case], share: float = CALIBRATION_SHARE) -> list[Case]:
+def assign_splits(cases: list[Splittable], share: float = CALIBRATION_SHARE) -> list[Splittable]:
     """Проставить сплит кейсам, у которых его нет. Возвращает изменённые.
 
     Уже проставленное не трогается никогда. Новые кейсы внутри страты сортируются
     по хешу и добираются в калибровку до `share` с учётом уже размеченных.
     """
     changed = []
-    strata: dict[str, list[Case]] = {}
+    strata: dict[str, list[Splittable]] = {}
     for case in cases:
         strata.setdefault(case.stratum, []).append(case)
 
     for members in strata.values():
         target = round(share * len(members))
         calibration = sum(1 for case in members if case.split == "calibration")
-        for case in sorted((case for case in members if case.split is None), key=_order_key):
+        for case in sorted((case for case in members if case.split is None), key=order_key):
             if calibration < target:
                 case.split = "calibration"
                 calibration += 1
@@ -93,14 +172,14 @@ def assign_splits(cases: list[Case], share: float = CALIBRATION_SHARE) -> list[C
     return changed
 
 
-def split_sizes(cases: list[Case]) -> dict[str, int]:
+def split_sizes(cases: list[Splittable]) -> dict[str, int]:
     sizes: dict[str, int] = {}
     for case in cases:
         sizes[case.split or "—"] = sizes.get(case.split or "—", 0) + 1
     return sizes
 
 
-def split_summary(cases: list[Case]) -> str:
+def split_summary(cases: list[Splittable]) -> str:
     sizes = split_sizes(cases)
     return f"калибровка {sizes.get('calibration', 0)}, тест {sizes.get('test', 0)}"
 

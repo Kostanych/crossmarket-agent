@@ -78,6 +78,19 @@ def parse_categories(raw: str) -> str:
     return CATEGORY_SEPARATOR.join(levels[:CATEGORY_DEPTH])
 
 
+def parse_article(raw: str) -> str:
+    """Значение «Артикул» из блока характеристик, либо пустая строка.
+
+    В сами характеристики артикул не попадает — `parse_characteristics` срезает
+    его вместе с шапкой. Здесь он нужен как запасной источник идентификатора.
+    """
+    lines = [line.strip() for line in raw.split("\n") if line.strip()]
+    if ARTICLE_KEY not in lines:
+        return ""
+    position = lines.index(ARTICLE_KEY) + 1
+    return lines[position] if position < len(lines) else ""
+
+
 def parse_characteristics(raw: str) -> dict[str, str]:
     """Блок характеристик → словарь.
 
@@ -116,17 +129,24 @@ def parse_characteristics(raw: str) -> dict[str, str]:
 
 
 def extract_ozon_csv(text: str, url: str = "") -> Product:
-    """Собрать `Product` из выгрузки скрапера по одной карточке Озона."""
+    """Собрать `Product` из выгрузки скрапера по одной карточке Озона.
+
+    Идентификатор берётся из колонки `id`, а если её нет — из характеристики
+    «Артикул»: партия от 04.09.2026 приехала без колонки `id`, и без запасного
+    источника все карточки партии разбирались с пустым идентификатором,
+    сливаясь в одну.
+    """
     rows = _rows(text)
     if not rows:
         raise ValueError("CSV пуст: нет ни одной строки данных.")
 
     cats_raw = _first(rows, "cats")
-    attributes = parse_characteristics(_first(rows, "characteristics"))
+    characteristics_raw = _first(rows, "characteristics")
+    attributes = parse_characteristics(characteristics_raw)
 
     return Product(
         marketplace="ozon",
-        id=_first(rows, "id"),
+        id=_first(rows, "id") or parse_article(characteristics_raw),
         url=url,
         title=_first(rows, "title"),
         description=_joined_description(rows),

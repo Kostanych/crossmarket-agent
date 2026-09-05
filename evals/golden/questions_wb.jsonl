@@ -36,7 +36,7 @@
 {"id": "a08", "question": "на чём можно тренироваться боксёру", "relevant_ids": [], "expected": "absent", "kind": "far", "split": "test"}
 {"id": "a09", "question": "на чём можно прыгать высоко", "relevant_ids": [], "expected": "absent", "kind": "far", "split": "calibration"}
 {"id": "a10", "question": "чем разнообразить семейную жизнь", "relevant_ids": [], "expected": "absent", "kind": "far", "split": "calibration"}
-{"id": "a11", "question": "подушка для сна", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "test"}
+{"id": "a11", "question": "одеяло тёплое двуспальное", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "test"}
 {"id": "a12", "question": "бассейн для сада", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "test"}
 {"id": "a13", "question": "в чём везти огнетушитель", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "calibration"}
 {"id": "a14", "question": "спрей против комаров", "relevant_ids": [], "expected": "absent", "kind": "near", "split": "test"}

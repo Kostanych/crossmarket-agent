@@ -13,6 +13,7 @@ from typing import Any, Literal
 Marketplace = Literal["wb", "ozon"]
 LabelValue = Literal["match", "no_match"]
 NegativeKind = Literal["hard", "soft"]
+Split = Literal["calibration", "test"]
 
 
 def _now() -> str:
@@ -61,6 +62,10 @@ class Label:
 
     `negative_kind`: `hard` — похожий товар с отличием, `soft` — случайная карточка.
     Без доли hard в тест-сете метрика B надувается.
+
+    `split` проставляется харнессом один раз и после этого не меняется: на парах
+    калибровки доводится промпт модели подтверждения, отчётный F1 снимается с теста.
+    Переразметка пары дописывает строку без сплита — его вернёт `evals.pairs`.
     """
 
     wb_id: str
@@ -70,10 +75,21 @@ class Label:
     source: str = "manual"
     comment: str = ""
     labeled_at: str = field(default_factory=_now)
+    split: Split | None = None
 
     @property
     def key(self) -> tuple[str, str]:
         return (self.wb_id, self.ozon_id)
+
+    @property
+    def id(self) -> str:
+        """Идентификатор пары для разбиения на сплиты и для отчётов."""
+        return f"{self.wb_id}:{self.ozon_id}"
+
+    @property
+    def stratum(self) -> str:
+        """`match`, `no_match-hard` или `no_match-soft` — разбиение стратифицируется по ней."""
+        return self.label if self.label == "match" else f"{self.label}-{self.negative_kind or 'hard'}"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

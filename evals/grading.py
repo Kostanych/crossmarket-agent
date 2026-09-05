@@ -4,7 +4,7 @@
 карточек, и `shown_recall` по ней упирается в 1.00.
 
 Карточка опознаётся по идентификатору — системный промпт агента требует его
-указывать. Всё детерминированно, судьи нет.
+указывать.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ _ANY_NUMBER = re.compile(r"(\d[\d\s  ]*)")
 _SOURCE = r"баз[аеиуы]|снапшот[ае]?|выдач[аеиу]"
 _ABSENT = r"\bнет\b|\bно не\b|не найден|не нашл|не обнаруж|отсутству"
 
-_DENIAL = re.compile(
+DENIAL = re.compile(
     rf"(?:{_SOURCE})[^.!?]*?(?:{_ABSENT})"
     rf"|(?:{_ABSENT})[^.!?]*?(?:{_SOURCE})"
     r"|нет (?:ни одного|подходящ|такого товара)"
@@ -136,7 +136,7 @@ def grade(case: Case, answer_text: str, tool_results: list[str]) -> Grade:
         cited_recall=len(hit) / len(relevant) if relevant else 0.0,
         cited_extra=len(cited) - len(hit),
         refused=not cited,
-        denied=bool(_DENIAL.search(answer_text)),
+        denied=bool(DENIAL.search(answer_text)),
     )
     result.outcome_correct = result.denied if case.expected == "absent" else bool(hit)
     return result

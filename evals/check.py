@@ -10,9 +10,20 @@ from pathlib import Path
 
 from crossmarket.embedding import encode_queries
 from crossmarket.models import Product
-from crossmarket.storage import qdrant
+from crossmarket.sql import run_sql
+from crossmarket.storage import clickhouse, qdrant
 from crossmarket.storage.jsonl import load_products
-from evals.cases import assign_splits, load_cases, save_cases, split_sizes, validate
+from evals import pairs as pairs_module
+from evals.cases import (
+    assign_splits,
+    load_cases,
+    load_sql_cases,
+    save_cases,
+    save_sql_cases,
+    split_sizes,
+    validate,
+    validate_sql_cases,
+)
 
 NEIGHBOURS = 5
 """Сколько настоящих карточек показать по отрицательному вопросу."""
@@ -34,7 +45,48 @@ def _categories(corpus: dict[str, Product]) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
-def run(path: Path, assign: bool = False, categories: bool = False) -> int:
+def check_pairs(assign: bool = False) -> list[str]:
+    """Сплит пар ВБ↔Озон: раздать, если просят, и напечатать страты."""
+    pairs = pairs_module.load_pairs()
+    if assign and (changed := pairs_module.assign(pairs)):
+        print(f"Парам проставлен сплит: {len(changed)}")
+    print(f"\n{pairs_module.summary(pairs)}")
+    for stratum, sizes in pairs_module.strata(pairs).items():
+        print(f"  {stratum:<16} {sizes}")
+    return pairs_module.validate(pairs)
+
+
+def check_sql_cases(assign: bool = False) -> list[str]:
+    """Golden-set тула C: схема кейсов плюс исполнимость каждого эталонного SQL.
+
+    Эталон хранится запросом, а не строками, поэтому проверять его надо прогоном:
+    переименованная категория превратила бы кейс в вечный промах молча. Пустой
+    результат допустим только в страте `empty` — и обязателен в ней.
+    """
+    cases = load_sql_cases()
+    if assign and (changed := assign_splits(cases)):
+        save_sql_cases(cases)
+        print(f"SQL-кейсам проставлен сплит: {', '.join(f'{c.id}→{c.split}' for c in changed)}")
+
+    problems = validate_sql_cases(cases)
+    client = clickhouse.connect()
+    strata: dict[str, int] = {}
+    for case in cases:
+        strata[case.kind] = strata.get(case.kind, 0) + 1
+        result = run_sql(client, case.sql)
+        if not result.ok:
+            problems.append(f"{case.id}: эталонный SQL не исполняется — {result.error[:120]}")
+        elif case.kind == "empty" and result.total_rows:
+            problems.append(f"{case.id}: страта empty, а строк {result.total_rows}")
+        elif case.kind != "empty" and not result.total_rows:
+            problems.append(f"{case.id}: пустой результат вне страты empty")
+
+    print(f"\nSQL-кейсов {len(cases)}: {split_sizes(cases)}")
+    print(f"Страты: {dict(sorted(strata.items()))}")
+    return problems
+
+
+def run(path: Path, assign: bool = False, categories: bool = False, pairs: bool = False) -> int:
     """Ноль — файл в порядке. Ненулевой код возврата ломает `make eval` до трат."""
     cases = load_cases(path)
     print(f"Кейсов {len(cases)}, из них с ответом в корпусе {sum(c.expected == 'found' for c in cases)}")
@@ -44,6 +96,9 @@ def run(path: Path, assign: bool = False, categories: bool = False) -> int:
         print(f"Проставлен сплит: {', '.join(f'{case.id}→{case.split}' for case in changed)}")
 
     problems = validate(cases)
+    problems += check_sql_cases(assign)
+    if pairs:
+        problems += check_pairs(assign)
     corpus = _corpus()
     for case in cases:
         for product_id in case.relevant_ids:

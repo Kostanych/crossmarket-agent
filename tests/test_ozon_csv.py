@@ -133,3 +133,10 @@ def test_multi_row_card_concatenates_description() -> None:
 def test_empty_csv_is_rejected() -> None:
     with pytest.raises(ValueError, match="CSV пуст"):
         extract_ozon_csv("title,price,cats,characteristics,desc,reviews,id\n")
+
+
+def test_id_falls_back_to_article_when_column_is_gone() -> None:
+    """Партия от 04.09.2026 приехала без колонки `id`; артикул лежит в характеристиках."""
+    product = extract_ozon_csv(_fixture("ozon_no_id_column.csv"))
+    assert product.id == "4907896517"
+    assert product.title and product.price_rub

@@ -23,8 +23,9 @@ from crossmarket.extraction.scraped import iter_dumps
 from crossmarket.models import Label, Marketplace, Product
 from crossmarket.storage.jsonl import DATA_DIR, append_label, append_product
 
-SEED_FILE = "разметка_2.csv"
+SEED_GLOB = "разметка_*.csv"
 SEED_COLUMNS = {"wb": "wb", "ozon": "ozon", "result": "result", "comment": "comment"}
+SEED_ALIASES = {"вб": "wb", "озон": "ozon"}
 MARKETPLACES: tuple[Marketplace, ...] = ("wb", "ozon")
 
 REQUIRED_FIELDS = ("title", "price_rub", "category", "attributes", "description")
@@ -39,7 +40,7 @@ class Dumps:
 
     def __init__(self, marketplace: Marketplace, root: Path) -> None:
         self.marketplace = marketplace
-        self.files = sorted((root / marketplace).glob("*.csv"))
+        self.files = sorted((root / marketplace).rglob("*.csv"))
         self.products: dict[str, Product] = {}
         self.without_id: list[str] = []
         self.without_price: list[str] = []
@@ -68,6 +69,7 @@ def load_seed(path: Path) -> list[dict[str, str]]:
     Кодировка у разных выгрузок сида разная (utf-8 с BOM или cp1251) и в теле
     файла кириллица есть, поэтому кодировка подбирается перебором. Имена колонок
     приводятся к нижнему регистру: они уже приезжали и строчными, и прописными.
+    Первые две колонки приезжали и по-русски (`ВБ;ОЗОН`) — отсюда `SEED_ALIASES`.
     """
     raw = path.read_bytes()
     for encoding in ("utf-8-sig", "cp1251"):
@@ -80,7 +82,14 @@ def load_seed(path: Path) -> list[dict[str, str]]:
         raise ValueError(f"{path.name}: не подошла ни одна кодировка из utf-8, cp1251.")
 
     reader = csv.DictReader(text.splitlines(), delimiter=";")
-    return [{(k or "").strip().lower(): (v or "") for k, v in row.items()} for row in reader]
+    rows = []
+    for row in reader:
+        clean = {}
+        for key, value in row.items():
+            name = (key or "").strip().lower()
+            clean[SEED_ALIASES.get(name, name)] = value or ""
+        rows.append(clean)
+    return rows
 
 
 def seed_to_label(row: dict[str, str]) -> Label:
@@ -211,7 +220,11 @@ def main() -> None:
     args = parser.parse_args()
 
     dumps = {marketplace: Dumps(marketplace, args.data_dir) for marketplace in MARKETPLACES}
-    labels = [seed_to_label(row) for row in load_seed(args.data_dir / SEED_FILE)]
+    seed_files = sorted(args.data_dir.glob(SEED_GLOB))
+    if not seed_files:
+        raise SystemExit(f"нет ни одного файла {SEED_GLOB} в {args.data_dir}")
+    print("Сид-разметка: " + ", ".join(path.name for path in seed_files))
+    labels = [seed_to_label(row) for path in seed_files for row in load_seed(path)]
     buckets = split_by_coverage(labels, dumps)
 
     report_dumps(dumps)
