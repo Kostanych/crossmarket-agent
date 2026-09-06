@@ -3,7 +3,7 @@
 
 POETRY ?= poetry run
 
-.PHONY: up eval eval-retrieval eval-qa eval-sql check test lint
+.PHONY: up eval eval-retrieval eval-qa eval-sql eval-routing check test lint
 
 up:                       ## Qdrant и ClickHouse
 	docker compose --profile infra up -d
@@ -11,7 +11,7 @@ up:                       ## Qdrant и ClickHouse
 check:                    ## валидация golden-set, без LLM и без денег
 	$(POETRY) python -m evals check
 
-eval: check               ## полный прогон: retrieval + агент + text2sql
+eval: check               ## полный прогон: retrieval + агент + text2sql + роутинг
 	$(POETRY) python -m evals all
 
 eval-retrieval:           ## только recall@k и MRR
@@ -22,6 +22,9 @@ eval-qa:                  ## только end-to-end прогон агента (
 
 eval-sql:                 ## только text2sql к ClickHouse (платный)
 	$(POETRY) python -m evals sql
+
+eval-routing:             ## только выбор тула на однохоповых вопросах (платный)
+	$(POETRY) python -m evals routing
 
 test:
 	$(POETRY) pytest

@@ -1,6 +1,8 @@
-"""Golden-set вопросов к корпусу ВБ: схема кейса, чтение файла, правило разбиения.
+"""Golden-set вопросов: схемы кейсов трёх сюит, чтение файлов, правило разбиения.
 
-Файл один на обе сюиты: retrieval берёт только `expected=found`, QA — все кейсы.
+`Case` — вопросы к корпусу ВБ, файл один на сюиты retrieval и QA: retrieval берёт
+только `expected=found`, QA — все кейсы. `SqlCase` — вопрос и эталонный SQL тула C.
+`RoutingCase` — вопрос и лейбл «правильный тул».
 
 Сплит хранится в файле, а не вычисляется при чтении: иначе добавление кейсов
 двигало бы границу, и кейс, отработанный в калибровке, мог уехать в тест. То же
@@ -18,6 +20,7 @@ from typing import Any, Literal, Protocol
 
 GOLDEN_FILE = Path("evals/golden/questions_wb.jsonl")
 SQL_GOLDEN_FILE = Path("evals/golden/questions_sql.jsonl")
+ROUTING_GOLDEN_FILE = Path("evals/golden/questions_routing.jsonl")
 
 Expected = Literal["found", "absent"]
 Split = Literal["calibration", "test"]
@@ -126,6 +129,80 @@ def validate_sql_cases(cases: list[SqlCase]) -> list[str]:
             problems.append(f"{case.id}: нет эталонного SQL")
         if not case.kind:
             problems.append(f"{case.id}: не указана страта")
+        if case.split not in ("calibration", "test"):
+            problems.append(f"{case.id}: сплит не проставлен")
+    return problems
+
+
+ROUTING_TOOLS = ("search_wb", "execute_sql")
+"""Лейблы роутинга — короткие имена тулов. Полное имя из вызова
+(`mcp__crossmarket__search_wb`) сравнивается с ними по суффиксу."""
+
+MULTIHOP = "multihop"
+"""Страта цепочек A→C. В accuracy не входит: однохоповых вопросов в наборе 36, а
+мультихоповых столько, что метрика по ним ничего не различала бы. Они читаются глазами."""
+
+
+@dataclass
+class RoutingCase:
+    """Вопрос и тул, который на него отвечает.
+
+    У мультихоповых кейсов лейбла нет: правильных вызовов там два и порядок между ними
+    вопросу не задан.
+    """
+
+    id: str
+    question: str
+    tool: str = ""
+    kind: str = ""
+    split: Split | None = None
+
+    @property
+    def stratum(self) -> str:
+        return self.kind or "—"
+
+    @property
+    def single_hop(self) -> bool:
+        """Входит ли кейс в accuracy роутинга."""
+        return self.kind != MULTIHOP
+
+    def to_dict(self) -> dict[str, Any]:
+        return {key: value for key, value in asdict(self).items() if value not in ("", None)}
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> RoutingCase:
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in raw.items() if k in known})
+
+
+def load_routing_cases(path: Path = ROUTING_GOLDEN_FILE) -> list[RoutingCase]:
+    with path.open(encoding="utf-8") as fh:
+        return [RoutingCase.from_dict(json.loads(line)) for line in fh if line.strip()]
+
+
+def save_routing_cases(cases: list[RoutingCase], path: Path = ROUTING_GOLDEN_FILE) -> None:
+    with path.open("w", encoding="utf-8") as fh:
+        for case in cases:
+            fh.write(json.dumps(case.to_dict(), ensure_ascii=False) + "\n")
+
+
+def validate_routing_cases(cases: list[RoutingCase]) -> list[str]:
+    """Что не так с golden-set роутинга. Пустой список — файл в порядке."""
+    problems = []
+    seen: set[str] = set()
+    for case in cases:
+        if not case.id:
+            problems.append(f"кейс без идентификатора: {case.question[:50]}")
+        elif case.id in seen:
+            problems.append(f"{case.id}: идентификатор повторяется")
+        seen.add(case.id)
+
+        if not case.kind:
+            problems.append(f"{case.id}: не указана страта")
+        if case.single_hop and case.tool not in ROUTING_TOOLS:
+            problems.append(f"{case.id}: лейбл должен быть одним из {ROUTING_TOOLS}, а не {case.tool!r}")
+        if not case.single_hop and case.tool:
+            problems.append(f"{case.id}: у мультихопового кейса не должно быть лейбла, а стоит {case.tool!r}")
         if case.split not in ("calibration", "test"):
             problems.append(f"{case.id}: сплит не проставлен")
     return problems

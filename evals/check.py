@@ -17,11 +17,14 @@ from evals import pairs as pairs_module
 from evals.cases import (
     assign_splits,
     load_cases,
+    load_routing_cases,
     load_sql_cases,
     save_cases,
+    save_routing_cases,
     save_sql_cases,
     split_sizes,
     validate,
+    validate_routing_cases,
     validate_sql_cases,
 )
 
@@ -86,6 +89,23 @@ def check_sql_cases(assign: bool = False) -> list[str]:
     return problems
 
 
+def check_routing_cases(assign: bool = False) -> list[str]:
+    """Golden-set роутинга: схема кейсов и страты. Базы тут не нужны — лейбл проверяется
+    глазами при написании вопроса, а не запросом."""
+    cases = load_routing_cases()
+    if assign and (changed := assign_splits(cases)):
+        save_routing_cases(cases)
+        print(f"Кейсам роутинга проставлен сплит: {', '.join(f'{c.id}→{c.split}' for c in changed)}")
+
+    strata: dict[str, int] = {}
+    for case in cases:
+        strata[case.kind] = strata.get(case.kind, 0) + 1
+    single = sum(1 for case in cases if case.single_hop)
+    print(f"\nКейсов роутинга {len(cases)}, из них в accuracy {single}: {split_sizes(cases)}")
+    print(f"Страты: {dict(sorted(strata.items()))}")
+    return validate_routing_cases(cases)
+
+
 def run(path: Path, assign: bool = False, categories: bool = False, pairs: bool = False) -> int:
     """Ноль — файл в порядке. Ненулевой код возврата ломает `make eval` до трат."""
     cases = load_cases(path)
@@ -97,6 +117,7 @@ def run(path: Path, assign: bool = False, categories: bool = False, pairs: bool 
 
     problems = validate(cases)
     problems += check_sql_cases(assign)
+    problems += check_routing_cases(assign)
     if pairs:
         problems += check_pairs(assign)
     corpus = _corpus()

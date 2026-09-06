@@ -5,6 +5,10 @@
 в Langfuse, подхватываются ли скиллы при `setting_sources=[]` (и не утекает ли вместе
 с ними `CLAUDE.md` проекта), включён ли tool search на одном туле.
 
+Проверка 6 добавлена на этапе 5 и разведкой уже не является: она сторожит выбранную
+раскладку скилла. Если SDK или CLI изменят поведение, разница входных токенов между
+`setting_sources=[]` и `["project"]` это покажет, не спрашивая модель.
+
 Тул `ping` здесь фиктивный: нужен инструмент, который модель может звать много раз
 подряд, чтобы упереться в лимит. Итоги переносятся в CLAUDE.md руками.
 
@@ -26,6 +30,7 @@ from claude_agent_sdk import (
     ClaudeAgentOptions,
     ResultMessage,
     ServerToolUseBlock,
+    SystemMessage,
     TextBlock,
     ToolUseBlock,
     create_sdk_mcp_server,
@@ -244,12 +249,49 @@ async def check_tool_search() -> None:
     report("ENABLE_TOOL_SEARCH=false", messages, result, error)
 
 
+async def check_plugin_skill() -> None:
+    """Раскладка скилла тула C: плагин против setting-source'ов.
+
+    Меряется не ответом модели, а входными токенами прогона и списком скиллов из
+    init-сообщения.
+
+    Строка `tools=[]` в таблице объясняет, почему у конфигураций со скиллом
+    `tools=["Skill"]`: скилл там найден, но вызвать его нечем.
+    """
+    print("\n=== 6. Скилл через плагин: входные токены и видимость")
+    repo = str(Path(__file__).resolve().parents[1])
+    plugin = [{"type": "local", "path": repo}]
+    configs = (
+        ("setting_sources=[] (как в агенте)", {"setting_sources": [], "tools": ["Skill"]}),
+        ("setting_sources=['project']", {"setting_sources": ["project"], "tools": ["Skill"]}),
+        ("plugin + setting_sources=[]", {"setting_sources": [], "tools": ["Skill"], "plugins": plugin}),
+        ("plugin, но tools=[]", {"setting_sources": [], "tools": [], "plugins": plugin}),
+    )
+    for label, overrides in configs:
+        options = base_options(
+            system_prompt="Отвечай одним словом.", mcp_servers={}, allowed_tools=[], cwd=repo, max_turns=1, **overrides
+        )
+        messages, result, error = await run("Ответь словом ГОТОВО.", options)
+        init = next((m.data for m in messages if isinstance(m, SystemMessage) and m.subtype == "init"), {})
+        usage = (result.usage if result is not None else {}) or {}
+        total = sum(
+            usage.get(key, 0) for key in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+        )
+        print(f"\n-- {label}")
+        print(f"   входных токенов: {total}")
+        print(f"   скиллы плагина: {[name for name in init.get('skills', []) if ':' in name]}")
+        print(f"   tools: {init.get('tools')}")
+        if error is not None:
+            print(f"   исключение: {type(error).__name__}: {error}")
+
+
 CHECKS = {
     "1": check_max_turns,
     "2": check_max_budget,
     "3": check_langfuse,
     "4": check_skills,
     "5": check_tool_search,
+    "6": check_plugin_skill,
 }
 
 

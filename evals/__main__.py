@@ -4,7 +4,8 @@
     python -m evals retrieval [--text СОСТАВ...]      recall@k и MRR
     python -m evals qa [--first N] [--verbose]        end-to-end прогон агента, платный
     python -m evals sql [--first N] [--verbose]      text2sql к ClickHouse, платный
-    python -m evals all                              все три сюиты — цель `make eval`
+    python -m evals routing [--first N] [--verbose]  выбор тула на однохоповых вопросах, платный
+    python -m evals all                              все четыре сюиты — цель `make eval`
 
 Прогресс и таблицы идут в stdout, отчёт — в `evals/reports/`, метрики — в MLflow.
 """
@@ -16,7 +17,7 @@ import sys
 from pathlib import Path
 
 from crossmarket.embedding import COMPOSITIONS, DEFAULT_COMPOSITION
-from evals import check, qa, retrieval
+from evals import check, qa, retrieval, routing
 from evals import sql as sql_suite
 from evals.cases import GOLDEN_FILE, load_cases
 
@@ -73,12 +74,19 @@ def main() -> None:
     sqler.add_argument("--verbose", action="store_true", help="печатать SQL агента и ответы")
     sqler.add_argument("--tag", help="суффикс отчёта и дампа")
 
+    router = suites.add_parser("routing", parents=[common], help="выбор тула на однохоповых вопросах (платный)")
+    router.add_argument("--first", type=int, help="прогнать только первые N вопросов")
+    router.add_argument("--max-turns", type=int, default=None)
+    router.add_argument("--budget", type=float, default=None)
+    router.add_argument("--verbose", action="store_true", help="печатать ответы целиком")
+    router.add_argument("--tag", help="суффикс отчёта и дампа")
+
     regrader = suites.add_parser("regrade", parents=[common], help="пересчитать метрики сохранённого прогона, без LLM")
     regrader.add_argument(
-        "--of", dest="regrade_suite", choices=("qa", "sql"), default="qa", help="какую сюиту пересчитать"
+        "--of", dest="regrade_suite", choices=("qa", "sql", "routing"), default="qa", help="какую сюиту пересчитать"
     )
     regrader.add_argument("--tag", help="какой прогон пересчитать")
-    suites.add_parser("all", parents=[common], help="retrieval + qa + sql, корпус с фоном")
+    suites.add_parser("all", parents=[common], help="retrieval + qa + sql + routing, корпус с фоном")
 
     args = parser.parse_args()
     use_mlflow = not args.no_mlflow
@@ -87,8 +95,9 @@ def main() -> None:
         raise SystemExit(check.run(args.golden, assign=args.assign, categories=args.categories, pairs=args.pairs))
 
     if args.suite == "regrade":
-        module = sql_suite if args.regrade_suite == "sql" else qa
-        module.regrade(use_mlflow, name=_run_name("sql_c" if args.regrade_suite == "sql" else "qa_wb", args.tag))
+        modules = {"sql": (sql_suite, "sql_c"), "routing": (routing, "routing"), "qa": (qa, "qa_wb")}
+        module, base = modules[args.regrade_suite]
+        module.regrade(use_mlflow, name=_run_name(base, args.tag))
         return
 
     if args.suite in ("retrieval", "all"):
@@ -133,6 +142,25 @@ def main() -> None:
             verbose=getattr(args, "verbose", False),
             use_mlflow=use_mlflow,
             name=_run_name("sql_c", getattr(args, "tag", None)),
+        )
+
+    if args.suite in ("routing", "all"):
+        from crossmarket.agent import instrument_langfuse
+        from crossmarket.config import AGENT_MAX_BUDGET_USD, AGENT_MAX_TURNS
+        from evals.cases import ROUTING_GOLDEN_FILE, load_routing_cases
+
+        first = getattr(args, "first", None)
+        cases = load_routing_cases(ROUTING_GOLDEN_FILE)
+        cases = cases[:first] if first else cases
+        traced = "включён" if instrument_langfuse() else "нет ключей"
+        print(f"\nВопросов роутинга {len(cases)}, трейсинг Langfuse: {traced}\n")
+        routing.run(
+            cases,
+            limit_turns=getattr(args, "max_turns", None) or AGENT_MAX_TURNS,
+            budget=getattr(args, "budget", None) or AGENT_MAX_BUDGET_USD,
+            verbose=getattr(args, "verbose", False),
+            use_mlflow=use_mlflow,
+            name=_run_name("routing", getattr(args, "tag", None)),
         )
 
 

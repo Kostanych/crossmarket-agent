@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import pytest
 
+from crossmarket.agent import SEARCH_TOOL, SQL_TOOL, Answer
 from crossmarket.models import Label
-from evals.cases import Case, SqlCase, assign_splits, validate, validate_sql_cases
+from evals.cases import Case, RoutingCase, SqlCase, assign_splits, validate, validate_routing_cases, validate_sql_cases
 from evals.grading import grade, parse_tool_output
 from evals.judge import Verdict, agreement
 from evals.retrieval import first_hit_rank, recall_at_k
+from evals.routing import grade as grade_routing
 
 TOOL_OUTPUT = """id: 1000000001
 Название: Точилка для ножей
@@ -280,3 +282,71 @@ def test_pairs_get_the_same_split_rule_as_questions() -> None:
     again = [Label(wb_id=p.wb_id, ozon_id=p.ozon_id, label=p.label, negative_kind=p.negative_kind) for p in pairs]
     assign_splits(again)
     assert [p.split for p in again] == [p.split for p in pairs]
+
+
+def _routing_case(**overrides) -> RoutingCase:
+    fields = {"id": "r01", "question": "чем наточить ножи", "tool": "search_wb", "kind": "a", "split": "test"}
+    return RoutingCase(**(fields | overrides))
+
+
+def _answer(*names: str) -> Answer:
+    return Answer(tool_calls=[{"name": name, "input": {}} for name in names])
+
+
+def test_routing_verdict_is_decided_by_the_first_call() -> None:
+    """Маршрут — это первое решение; что агент делал дальше, метрику не меняет."""
+    result = grade_routing(_routing_case(), _answer(SEARCH_TOOL, SQL_TOOL))
+
+    assert result.routed
+    assert result.used_expected
+    assert result.used_other
+
+
+def test_wrong_first_call_is_a_miss_even_if_the_right_one_follows() -> None:
+    result = grade_routing(_routing_case(), _answer(SQL_TOOL, SEARCH_TOOL))
+
+    assert not result.routed
+    assert result.used_expected
+
+
+def test_skill_call_is_not_part_of_the_route() -> None:
+    """`Skill` — служебный тул: попади он в последовательность, развилка A/C поехала бы."""
+    result = grade_routing(_routing_case(tool="execute_sql"), _answer("Skill", SQL_TOOL))
+
+    assert result.routed
+    assert result.sequence == ["execute_sql"]
+    assert result.skill_used
+
+
+def test_answer_without_tools_is_a_miss() -> None:
+    result = grade_routing(_routing_case(), _answer())
+
+    assert not result.routed
+    assert result.no_tool
+
+
+def test_multihop_case_stays_out_of_accuracy() -> None:
+    """У цепочки правильных вызовов два, и порядок между ними вопросом не задан."""
+    case = _routing_case(id="r37", tool="", kind="multihop")
+    result = grade_routing(case, _answer(SEARCH_TOOL, SQL_TOOL))
+
+    assert not case.single_hop
+    assert not result.routed
+    assert result.sequence == ["search_wb", "execute_sql"]
+
+
+def test_routing_validate_catches_silent_breakage() -> None:
+    problems = validate_routing_cases(
+        [
+            _routing_case(id="r01"),
+            _routing_case(id="r01"),
+            _routing_case(id="r02", tool="search_ozon"),
+            _routing_case(id="r03", split=None),
+            _routing_case(id="r04", kind="multihop", tool="search_wb"),
+        ]
+    )
+
+    assert any("повторяется" in problem for problem in problems)
+    assert any("r02" in problem and "лейбл" in problem for problem in problems)
+    assert any("r03" in problem and "сплит" in problem for problem in problems)
+    assert any("r04" in problem and "мультихоп" in problem for problem in problems)

@@ -200,7 +200,7 @@ def violations_table(rows: list[dict[str, Any]]) -> Table | None:
     return table if table.rows else None
 
 
-def dump_run(rows: list[dict[str, Any]], name: str = "qa_wb") -> Path:
+def dump_run(rows: list[dict[str, Any]], name: str = "qa_wb", limits: str = "") -> Path:
     """Сложить ответы и выдачу тула на диск для `regrade`.
 
     В гит не идёт — там названия и цены настоящих карточек.
@@ -220,12 +220,19 @@ def dump_run(rows: list[dict[str, Any]], name: str = "qa_wb") -> Path:
                         "num_turns": answer.num_turns,
                         "cost_usd": answer.cost_usd,
                         "subtype": answer.subtype,
+                        "limits": limits,
                     },
                     ensure_ascii=False,
                 )
                 + "\n"
             )
     return path
+
+
+def _limits_of(name: str) -> str:
+    """Лимиты того прогона, а не сегодняшние: перегрейд не должен выдавать дефолт за факт."""
+    first = json.loads((RUNS_DIR / f"{name}.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    return first.get("limits") or "не записаны в дампе"
 
 
 def load_run(name: str = "qa_wb") -> list[dict[str, Any]]:
@@ -285,14 +292,15 @@ def run(
 ) -> None:
     rows = asyncio.run(run_cases(cases, limit_turns, budget, verbose))
     flush_langfuse()
-    report(rows, f"max_turns={limit_turns}, max_budget_usd={budget}", use_mlflow, dump_run(rows, name), name)
+    limits = f"max_turns={limit_turns}, max_budget_usd={budget}"
+    report(rows, limits, use_mlflow, dump_run(rows, name, limits), name)
 
 
 def regrade(use_mlflow: bool = False, name: str = "qa_wb") -> None:
     """Пересчитать метрики сохранённого прогона новым разбором. LLM не зовётся."""
     rows = load_run(name)
     print(f"перегрейд {len(rows)} ответов из {RUNS_DIR / f'{name}.jsonl'}\n")
-    report(rows, "из сохранённого прогона", use_mlflow, RUNS_DIR / f"{name}.jsonl", name)
+    report(rows, _limits_of(name), use_mlflow, RUNS_DIR / f"{name}.jsonl", name)
 
 
 def report(rows: list[dict[str, Any]], limits: str, use_mlflow: bool, dump: Path, name: str = "qa_wb") -> None:

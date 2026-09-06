@@ -1,0 +1,50 @@
+{"id": "r01", "question": "Чем наточить кухонные ножи?", "tool": "search_wb", "kind": "a", "split": "test"}
+{"id": "r02", "question": "Что взять, чтобы хранить детские игрушки в комнате?", "tool": "search_wb", "kind": "a", "split": "calibration"}
+{"id": "r03", "question": "Нужна женская сумка через плечо — что есть?", "tool": "search_wb", "kind": "a", "split": "test"}
+{"id": "r04", "question": "Чем помыть окна, не забираясь на подоконник?", "tool": "search_wb", "kind": "a", "split": "calibration"}
+{"id": "r05", "question": "Что подойдёт коту для сна?", "tool": "search_wb", "kind": "a", "split": "calibration"}
+{"id": "r06", "question": "Ищу, на что поставить ноги при работе за столом.", "tool": "search_wb", "kind": "a", "split": "test"}
+{"id": "r07", "question": "Чем убрать запах из сливного отверстия раковины?", "tool": "search_wb", "kind": "a", "split": "calibration"}
+{"id": "r08", "question": "На что развесить половники и лопатки на кухне?", "tool": "search_wb", "kind": "a", "split": "calibration"}
+{"id": "r09", "question": "Нужен органайзер в багажник машины.", "tool": "search_wb", "kind": "a", "split": "calibration"}
+{"id": "r10", "question": "Чем украсить стену в саду?", "tool": "search_wb", "kind": "a", "split": "test"}
+{"id": "r11", "question": "Какая средняя цена товара на Озоне?", "tool": "execute_sql", "kind": "c", "split": "calibration"}
+{"id": "r12", "question": "Сколько всего карточек в снапшоте?", "tool": "execute_sql", "kind": "c", "split": "calibration"}
+{"id": "r13", "question": "На какой площадке товары в среднем дороже?", "tool": "execute_sql", "kind": "c", "split": "test"}
+{"id": "r14", "question": "Какие пять товаров в базе самые дорогие?", "tool": "execute_sql", "kind": "c", "split": "calibration"}
+{"id": "r15", "question": "Сколько разных категорий у товаров Wildberries?", "tool": "execute_sql", "kind": "c", "split": "test"}
+{"id": "r16", "question": "Какая медианная цена у товаров Wildberries?", "tool": "execute_sql", "kind": "c", "split": "test"}
+{"id": "r17", "question": "В какой категории Озона самая высокая средняя цена?", "tool": "execute_sql", "kind": "c", "split": "calibration"}
+{"id": "r18", "question": "Сколько товаров в категории «Дом / Кухня»?", "tool": "execute_sql", "kind": "c", "split": "test"}
+{"id": "r19", "question": "Сколько стоит самый дешёвый товар в базе?", "tool": "execute_sql", "kind": "c", "split": "calibration"}
+{"id": "r20", "question": "У скольких карточек пустое описание?", "tool": "execute_sql", "kind": "c", "split": "calibration"}
+{"id": "r21", "question": "Что взять в машину для мелочей, если не хочу тратить больше 1000 рублей?", "tool": "search_wb", "kind": "boundary-a", "split": "test"}
+{"id": "r22", "question": "Что подарить ребёнку из игрушек, уложившись в 2000 рублей?", "tool": "search_wb", "kind": "boundary-a", "split": "test"}
+{"id": "r23", "question": "Нужно, куда сложить бельё и одежду, желательно дешевле 2500 рублей.", "tool": "search_wb", "kind": "boundary-a", "split": "calibration"}
+{"id": "r24", "question": "Какая мягкая игрушка подойдёт малышу, если тратить больше 1500 рублей не хочу?", "tool": "search_wb", "kind": "boundary-a", "split": "calibration"}
+{"id": "r25", "question": "Чем фигурно нарезать овощи, если хочется уложиться в 700 рублей?", "tool": "search_wb", "kind": "boundary-a", "split": "calibration"}
+{"id": "r26", "question": "Что поставить дома, чтобы воздух стал чище, за сумму до 5000 рублей?", "tool": "search_wb", "kind": "boundary-a", "split": "calibration"}
+{"id": "r27", "question": "Ищу набор из нескольких металлических фигурок для украшения стены — что есть?", "tool": "search_wb", "kind": "boundary-a", "split": "test"}
+{"id": "r28", "question": "Нужна лежанка коту размером примерно 35 на 35 сантиметров — есть такая?", "tool": "search_wb", "kind": "boundary-a", "split": "calibration"}
+{"id": "r29", "question": "Товаров дешевле 300 рублей в базе много?", "tool": "execute_sql", "kind": "boundary-c", "split": "calibration"}
+{"id": "r30", "question": "Чего в снапшоте больше — карточек Wildberries или Озона?", "tool": "execute_sql", "kind": "boundary-c", "split": "test"}
+{"id": "r31", "question": "Какие пять товаров в базе самые дешёвые?", "tool": "execute_sql", "kind": "boundary-c", "split": "test"}
+{"id": "r32", "question": "Игрушки на Озоне в среднем дороже кухонных товаров Wildberries?", "tool": "execute_sql", "kind": "boundary-c", "split": "calibration"}
+{"id": "r33", "question": "Сколько в базе товаров дороже трёх тысяч рублей?", "tool": "execute_sql", "kind": "boundary-c", "split": "test"}
+{"id": "r34", "question": "Какая категория Wildberries самая многочисленная?", "tool": "execute_sql", "kind": "boundary-c", "split": "calibration"}
+{"id": "r35", "question": "Насколько средняя цена в категории «Дом и сад / Дача и сад» отличается от средней по Озону?", "tool": "execute_sql", "kind": "boundary-c", "split": "calibration"}
+{"id": "r36", "question": "У скольких карточек Wildberries не указана категория?", "tool": "execute_sql", "kind": "boundary-c", "split": "calibration"}
+{"id": "r43", "question": "Нужны магниты, штук пять, для мелкого крепежа — есть такие?", "tool": "search_wb", "kind": "boundary-a", "split": "calibration"}
+{"id": "r44", "question": "Ищу банное полотенце размером примерно 80 на 160 сантиметров — что найдётся?", "tool": "search_wb", "kind": "boundary-a", "split": "test"}
+{"id": "r45", "question": "Чем занять ребёнка в ванне, если бюджет до 1000 рублей?", "tool": "search_wb", "kind": "boundary-a", "split": "calibration"}
+{"id": "r46", "question": "Нужна обувь собаке, пара, желательно со светоотражателями.", "tool": "search_wb", "kind": "boundary-a", "split": "test"}
+{"id": "r47", "question": "Много ли в базе товаров дороже десяти тысяч рублей?", "tool": "execute_sql", "kind": "boundary-c", "split": "test"}
+{"id": "r48", "question": "Средняя цена на Wildberries выше тысячи рублей или ниже?", "tool": "execute_sql", "kind": "boundary-c", "split": "calibration"}
+{"id": "r49", "question": "Сколько всего разных категорий встречается в снапшоте?", "tool": "execute_sql", "kind": "boundary-c", "split": "test"}
+{"id": "r50", "question": "Какие три категории Озона самые дорогие по средней цене?", "tool": "execute_sql", "kind": "boundary-c", "split": "calibration"}
+{"id": "r37", "question": "Найди точилку для ножей на Wildberries и скажи, дороже она средней цены по площадке или дешевле.", "kind": "multihop", "split": "calibration"}
+{"id": "r38", "question": "Какой товар в базе самый дорогой и для чего он нужен?", "kind": "multihop", "split": "calibration"}
+{"id": "r39", "question": "Найди женскую сумку кросс-боди и посчитай, сколько всего товаров в её категории.", "kind": "multihop", "split": "calibration"}
+{"id": "r40", "question": "Подбери лежанку для кошки и сравни её цену со средней ценой по Wildberries.", "kind": "multihop", "split": "test"}
+{"id": "r41", "question": "Найди органайзер в багажник и скажи, сколько ещё автотоваров есть в базе.", "kind": "multihop", "split": "calibration"}
+{"id": "r42", "question": "Найди мягкую игрушку на Wildberries и скажи, дешевле ли она средней цены в своей категории.", "kind": "multihop", "split": "test"}

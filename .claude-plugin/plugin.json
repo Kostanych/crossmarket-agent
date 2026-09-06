@@ -1,0 +1,5 @@
+{
+  "name": "crossmarket",
+  "description": "Знание о снапшоте товаров в ClickHouse для тула C: схема, диалект, ловушки данных.",
+  "version": "0.1.0"
+}

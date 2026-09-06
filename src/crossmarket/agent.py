@@ -1,20 +1,23 @@
 """Агент на Claude Agent SDK и его тулы: поиск по ВБ (A) и SQL к снапшоту (C).
 
-Запрет live-fetch исполнен конфигурацией: `tools=[]` убирает встроенные `WebFetch`,
-`WebSearch`, `Bash` и `Read` из контекста, `permission_mode="dontAsk"` не даёт
-исполниться ничему вне `allowed_tools`.
+Запрет live-fetch исполнен конфигурацией: `tools` не содержит `WebFetch`, `WebSearch`,
+`Bash` и `Read`, `permission_mode="dontAsk"` не даёт исполниться ничему вне
+`allowed_tools`. Единственное, что в `tools` попадает, — встроенный `Skill` у
+конфигураций со скиллом: без него скилл обнаружен, но вызвать его нечем. В сеть он не
+ходит, так что запрет держится.
 
 Остановка детерминированная — `max_turns` и `max_budget_usd`. При исчерпании SDK и
 отдаёт `ResultMessage` с `subtype=error_max_turns` / `error_max_budget_usd`, и
 бросает исключение; обрабатывается и то и другое.
 
-Тулы регистрируются в одном MCP-сервере, а разводятся по `allowed_tools`: на этапе 4
-у сюиты C виден только `execute_sql`, роутинг между тулами появится на этапе 5.
+Тулы регистрируются в одном MCP-сервере, а разводятся по `allowed_tools`: у сюиты A
+виден только `search_wb`, у C — только `execute_sql`, у роутера оба.
 
-Знание о схеме БД лежит в `skills/clickhouse-sql/SKILL.md` и на этом этапе читается в
-системный промпт. Механизм скиллов SDK не включён намеренно: заданный `skills`
-проставляет `setting_sources=["user","project"]`, и вместе со скиллом агент подтянул
-бы `CLAUDE.md` репозитория — там разбор eval, которым он оценивается.
+Знание о схеме БД подключается скиллом плагина, а не читается в промпт.
+`setting_sources=[]` тут несёт смысл ограничения: с `["project"]` вместе со скиллами
+приехал бы `CLAUDE.md` репозитория — 22 тысячи токенов с разбором eval, которым агент
+же и оценивается (замер в CLAUDE.md). Скиллы при этом берутся из `plugins`, для
+которого setting-sources не нужны.
 """
 
 from __future__ import annotations
@@ -56,19 +59,16 @@ SERVER_NAME = "crossmarket"
 SEARCH_TOOL = f"mcp__{SERVER_NAME}__search_wb"
 SQL_TOOL = f"mcp__{SERVER_NAME}__execute_sql"
 
-SKILL_FILE = Path(__file__).resolve().parents[2] / "skills" / "clickhouse-sql" / "SKILL.md"
+PLUGIN_DIR = Path(__file__).resolve().parents[2]
+"""Корень репозитория объявлен плагином: манифест лежит в `.claude-plugin/plugin.json`,
+скиллы — в `skills/`, ровно там, где их ждёт формат. Следствие, о котором надо помнить:
+`commands/`, `agents/`, `hooks/` и `.mcp.json`, заведённые в корне, тоже станут частью
+плагина."""
 
-
-def schema_doc(path: Path = SKILL_FILE) -> str:
-    """Знание о схеме из SKILL.md, без YAML-фронтматтера.
-
-    Фронтматтер — служебный заголовок для механизма скиллов; в промпте он был бы
-    шумом. Сам файл написан так, чтобы на этапе 5 уехать в SDK без правок.
-    """
-    text = path.read_text(encoding="utf-8")
-    if text.startswith("---"):
-        text = text.split("---", 2)[-1]
-    return text.strip()
+PLUGIN_NAME = "crossmarket"
+SQL_SKILL = f"{PLUGIN_NAME}:clickhouse-sql"
+"""Имя из манифеста, а не из имени каталога. Без манифеста SDK взял бы имя папки, и
+переименование репозитория выключило бы скилл из allowlist без единой ошибки."""
 
 
 SYSTEM_PROMPT = """Ты отвечаешь на вопросы о товарах Wildberries по снапшоту базы.
@@ -165,10 +165,12 @@ async def execute_sql(args: dict[str, Any]) -> dict[str, Any]:
 
 SERVER = create_sdk_mcp_server(SERVER_NAME, "1.0.0", [search_wb, execute_sql])
 
-SQL_SYSTEM_PROMPT = f"""Ты отвечаешь на вопросы о товарах Wildberries и Ozon, переводя их
-в SQL к снапшоту базы и вызывая тул execute_sql.
+SQL_RULES = f"""Схему таблицы, ловушки этих данных и особенности диалекта ClickHouse
+знает скилл {SQL_SKILL}. Вызови его перед первым SQL-запросом — сразу и молча, не объявляя
+об этом в ответе: без него ты не знаешь ни про обязательный FINAL, ни про то, что lower()
+не берёт кириллицу.
 
-Единственный источник фактов — то, что вернул тул. Числа, которых нет в его выдаче, не
+Единственный источник фактов — то, что вернул тул. Числа, которого нет в его выдаче, не
 существует: не прикидывай и не вспоминай из общих знаний. Считать в уме поверх выдачи
 тоже нельзя — если нужен ещё один агрегат, сделай ещё один запрос.
 
@@ -181,13 +183,48 @@ SQL_SYSTEM_PROMPT = f"""Ты отвечаешь на вопросы о това�
 Пустой результат — законный ответ: так и скажи, что под условие ничего не подходит.
 
 В ответе назови полученное число или строки явно, теми же значениями, что вернул тул,
-без округления сверх того, что уже сделал SQL.
+без округления сверх того, что уже сделал SQL."""
+"""Часть промпта про SQL, общая у конфигурации C и роутера: у обоих есть execute_sql и
+скилл, и расхождение между двумя копиями этих правил меряло бы разницу промптов, а не
+разницу конфигураций."""
+
+SQL_SYSTEM_PROMPT = f"""Ты отвечаешь на вопросы о товарах Wildberries и Ozon, переводя их
+в SQL к снапшоту базы и вызывая тул execute_sql.
+
+{SQL_RULES}
 
 Отвечай по-русски и сразу по делу, без преамбул. Цены — на дату снапшота.
+"""
 
-Ниже — схема базы, ловушки этих данных и особенности диалекта ClickHouse.
+ROUTER_SYSTEM_PROMPT = f"""Ты отвечаешь на вопросы о товарах Wildberries и Ozon по
+снапшоту базы. У тебя два тула, и первое решение по каждому вопросу — какой из них взять.
 
-{schema_doc()}
+search_wb ищет карточки по смыслу запроса в коллекции Wildberries. Бери его, когда
+ответ нужно доставать из текста карточки: что это за товар, для чего он, из чего сделан,
+чем один подходит лучше другого. Ценовое ограничение из вопроса при этом остаётся в
+search_wb параметром price_max — это сужение поиска, а не повод идти в SQL.
+
+execute_sql считает по снапшоту обеих площадок. Бери его, когда спрошено число или
+упорядоченный список по полям карточки: среднее, минимум, максимум, медиана, количество,
+топ-N по цене, сравнение площадок или категорий между собой.
+
+Развилка одной фразой: спрашивают «какой товар подойдёт» — это search_wb, спрашивают
+«сколько, средняя, самый, больше ли» — это execute_sql.
+
+Если вопрос честно требует обоих — сначала найди товар через search_wb, потом посчитай
+по нему через execute_sql. Но не зови второй тул просто на всякий случай.
+
+{SQL_RULES}
+
+По выдаче search_wb: товаров, цен и характеристик, которых в ней нет, не существует.
+Если выдача пуста или найденные карточки не отвечают на вопрос — так и скажи, что такого
+товара в базе нет. Это нормальный ответ, а не неудача. Называя товар, ставь рядом его
+идентификатор из выдачи в скобках: (id: 1234567), а цену — ровно ту, что в карточке, без
+округления.
+
+Отвечай по-русски и сразу по делу. Не объявляй, что собираешься сделать, — ни
+по-русски, ни по-английски: тул зови молча, в ответ пиши результат. Цены — на дату
+снапшота, а не сегодняшние.
 """
 
 
@@ -196,11 +233,17 @@ def build_options(
     max_budget_usd: float = AGENT_MAX_BUDGET_USD,
     system_prompt: str = SYSTEM_PROMPT,
     allowed_tools: list[str] | None = None,
+    skills: list[str] | None = None,
 ) -> ClaudeAgentOptions:
     """Опции агента. `tools`, `allowed_tools` и `permission_mode` — см. докстринг модуля.
 
     По умолчанию — конфигурация тула A: сюиты этапов 2 и 3 зовут `build_options()` без
-    аргументов. Сюита C передаёт свой промпт и свой список тулов.
+    аргументов. Конфигурации C и роутера передают свой промпт, свой список тулов и свой
+    скилл.
+
+    Скиллы приезжают из `plugins`, а не из `setting_sources`: второй путь притащил бы
+    `CLAUDE.md` репозитория. Вместе со скиллом в `tools` кладётся `Skill` — без него
+    скилл виден в сессии, но вызвать его нечем.
 
     `display="summarized"` возвращает текст промежуточных рассуждений: по умолчанию у
     Opus 4.7+ он `omitted`, то есть блок приходит с подписью и пустым содержимым.
@@ -210,23 +253,39 @@ def build_options(
         thinking={"type": "adaptive", "display": "summarized"},
         model=AGENT_MODEL,
         system_prompt=system_prompt,
-        tools=[],
+        tools=["Skill"] if skills else [],
         mcp_servers={SERVER_NAME: SERVER},
         allowed_tools=allowed_tools or [SEARCH_TOOL],
         permission_mode="dontAsk",
         setting_sources=[],
+        skills=skills,
+        plugins=[{"type": "local", "path": str(PLUGIN_DIR)}] if skills else [],
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
     )
 
 
 def sql_options(max_turns: int = AGENT_MAX_TURNS, max_budget_usd: float = AGENT_MAX_BUDGET_USD) -> ClaudeAgentOptions:
-    """Конфигурация тула C: виден только `execute_sql`, промпт со схемой базы."""
+    """Конфигурация тула C: виден только `execute_sql`, схема базы — скиллом."""
     return build_options(
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
         system_prompt=SQL_SYSTEM_PROMPT,
         allowed_tools=[SQL_TOOL],
+        skills=[SQL_SKILL],
+    )
+
+
+def router_options(
+    max_turns: int = AGENT_MAX_TURNS, max_budget_usd: float = AGENT_MAX_BUDGET_USD
+) -> ClaudeAgentOptions:
+    """Конфигурация роутера: видны оба тула, выбор между ними делает модель."""
+    return build_options(
+        max_turns=max_turns,
+        max_budget_usd=max_budget_usd,
+        system_prompt=ROUTER_SYSTEM_PROMPT,
+        allowed_tools=[SEARCH_TOOL, SQL_TOOL],
+        skills=[SQL_SKILL],
     )
 
 

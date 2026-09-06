@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 import pytest
@@ -176,3 +177,39 @@ def test_thinking_span_is_optional(monkeypatch: pytest.MonkeyPatch) -> None:
     agent._log_thinking("проверю насосы")
 
     assert calls == [{"name": "thinking", "output": "проверю насосы"}, {"ended": True}]
+
+
+def test_sql_and_router_configs_take_the_skill_from_a_plugin() -> None:
+    """Скилл приезжает плагином, а не setting-source'ами: те притащили бы `CLAUDE.md`.
+
+    `tools=["Skill"]` — узкое исключение из запрета встроенных тулов: без него скилл
+    виден в сессии, но вызвать его нечем (замер в `tools/spike_sdk.py`, проверка 6).
+    """
+    for options in (agent.sql_options(), agent.router_options()):
+        assert options.skills == [agent.SQL_SKILL]
+        assert options.plugins == [{"type": "local", "path": str(agent.PLUGIN_DIR)}]
+        assert options.setting_sources == []
+        assert options.tools == ["Skill"]
+        assert options.permission_mode == "dontAsk"
+
+
+def test_plugin_declares_the_skill_it_promises() -> None:
+    """Имя скилла собрано из манифеста: разъедься они, скилл молча выпал бы из allowlist."""
+    manifest = json.loads((agent.PLUGIN_DIR / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    plugin_name, _, skill_name = agent.SQL_SKILL.partition(":")
+
+    assert manifest["name"] == plugin_name
+    assert (agent.PLUGIN_DIR / "skills" / skill_name / "SKILL.md").is_file()
+
+
+def test_router_sees_both_tools() -> None:
+    assert agent.router_options().allowed_tools == [agent.SEARCH_TOOL, agent.SQL_TOOL]
+    assert agent.build_options().allowed_tools == [agent.SEARCH_TOOL]
+    assert agent.sql_options().allowed_tools == [agent.SQL_TOOL]
+
+
+def test_sql_rules_are_shared_by_both_configs_that_write_sql() -> None:
+    """Одни правила на C и роутер: разойдись копии, сюиты мерили бы разницу промптов."""
+    assert agent.SQL_RULES in agent.SQL_SYSTEM_PROMPT
+    assert agent.SQL_RULES in agent.ROUTER_SYSTEM_PROMPT
+    assert agent.SQL_SKILL in agent.SQL_RULES
