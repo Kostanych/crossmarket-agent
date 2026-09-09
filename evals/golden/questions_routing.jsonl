@@ -48,3 +48,28 @@
 {"id": "r40", "question": "Подбери лежанку для кошки и сравни её цену со средней ценой по Wildberries.", "kind": "multihop", "split": "test"}
 {"id": "r41", "question": "Найди органайзер в багажник и скажи, сколько ещё автотоваров есть в базе.", "kind": "multihop", "split": "calibration"}
 {"id": "r42", "question": "Найди мягкую игрушку на Wildberries и скажи, дешевле ли она средней цены в своей категории.", "kind": "multihop", "split": "test"}
+{"id": "r51", "question": "Есть ли на Озоне товар Wildberries 1041454143?", "tool": "match_ozon", "kind": "b", "split": "calibration"}
+{"id": "r52", "question": "Найди на Озоне то же самое, что продаётся на Wildberries под артикулом 1031237671.", "tool": "match_ozon", "kind": "b", "split": "calibration"}
+{"id": "r53", "question": "Товар Wildberries 1047715601 и карточка Озона 4569058649 — это один и тот же товар?", "tool": "match_ozon", "kind": "b", "split": "test"}
+{"id": "r54", "question": "Проверь, продаётся ли карточка Wildberries 1035687894 где-нибудь на Озоне.", "tool": "match_ozon", "kind": "b", "split": "calibration"}
+{"id": "r55", "question": "Wildberries 1063232212 и Ozon 4863752138 — одно и то же или разные товары?", "tool": "match_ozon", "kind": "b", "split": "test"}
+{"id": "r56", "question": "У товара Wildberries 1046609625 есть точно такой же аналог на Озоне?", "tool": "match_ozon", "kind": "b", "split": "test"}
+{"id": "r57", "question": "Найди озоновскую карточку для товара Wildberries 1055632850.", "tool": "match_ozon", "kind": "b", "split": "test"}
+{"id": "r58", "question": "Сравни карточку Wildberries 1059103410 с карточкой Озона 4760712261: то же это изделие?", "tool": "match_ozon", "kind": "b", "split": "calibration"}
+{"id": "r59", "question": "Товар Wildberries 1015563462 — найдётся ли ровно такой же на Озоне?", "tool": "match_ozon", "kind": "b", "split": "calibration"}
+{"id": "r60", "question": "Проверь пару: Wildberries 1066583906 против Ozon 4556821038.", "tool": "match_ozon", "kind": "b", "split": "calibration"}
+{"id": "r61", "question": "Сколько стоит на Озоне такой же товар, как Wildberries 1032329883?", "tool": "match_ozon", "kind": "boundary-b", "split": "calibration"}
+{"id": "r62", "question": "На какой площадке выгоднее взять товар Wildberries 1041454143?", "tool": "match_ozon", "kind": "boundary-b", "split": "test"}
+{"id": "r63", "question": "Переплачу ли я, если куплю товар Wildberries 1031237671 на Озоне, а не на Wildberries?", "tool": "match_ozon", "kind": "boundary-b", "split": "test"}
+{"id": "r64", "question": "У карточки Wildberries 1029155020 на Озоне есть двойник или такой товар только на Wildberries?", "tool": "match_ozon", "kind": "boundary-b", "split": "calibration"}
+{"id": "r65", "question": "Насколько дороже на Озоне тот же товар, что Wildberries 1046609625?", "tool": "match_ozon", "kind": "boundary-b", "split": "test"}
+{"id": "r66", "question": "Карточка Ozon 4904633153 — это тот же товар, что Wildberries 1058621594, или у них отличается назначение?", "tool": "match_ozon", "kind": "boundary-b", "split": "test"}
+{"id": "r67", "question": "Проверь, не дублируется ли товар Wildberries 1015170453 на Озоне под другим названием.", "tool": "match_ozon", "kind": "boundary-b", "split": "calibration"}
+{"id": "r68", "question": "Wildberries 1007090439 и Ozon 2015312252 отличаются хоть чем-то, кроме цены?", "tool": "match_ozon", "kind": "boundary-b", "split": "calibration"}
+{"id": "r69", "question": "Есть ли смысл искать товар Wildberries 1031962442 на Озоне — он там вообще представлен?", "tool": "match_ozon", "kind": "boundary-b", "split": "test"}
+{"id": "r70", "question": "Для товара Wildberries 1037877337 найди такой же на Озоне и скажи, какая там цена.", "tool": "match_ozon", "kind": "boundary-b", "split": "calibration"}
+{"id": "r71", "question": "Товар Wildberries 1005172373 — на Озоне продаётся именно он или только похожие модели?", "tool": "match_ozon", "kind": "boundary-b", "split": "calibration"}
+{"id": "r72", "question": "Wildberries 1047715601 — покажи озоновский аналог, если он там ровно тот же.", "tool": "match_ozon", "kind": "boundary-b", "split": "calibration"}
+{"id": "r73", "question": "Найди на Wildberries корзину для игрушек и проверь, продаётся ли она на Озоне.", "kind": "multihop", "split": "calibration"}
+{"id": "r74", "question": "Подбери электробритву для влажного бритья и скажи, есть ли она на Озоне.", "kind": "multihop", "split": "test"}
+{"id": "r75", "question": "Найди самый дорогой товар Wildberries в базе и проверь, есть ли он на Озоне.", "kind": "multihop", "split": "test"}

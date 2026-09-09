@@ -23,6 +23,7 @@ from claude_agent_sdk import (
 )
 
 from crossmarket import agent
+from crossmarket.matching import Candidate, MatchResult, Verdict
 from crossmarket.models import Product
 from crossmarket.retrieval import Hit
 
@@ -193,6 +194,32 @@ def test_sql_and_router_configs_take_the_skill_from_a_plugin() -> None:
         assert options.permission_mode == "dontAsk"
 
 
+def test_match_tool_returns_shape_sdk_expects(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Тул B отдаёт тот же формат, что и остальные: расхождение ломает агента молча."""
+
+    async def fake_match(wb_id: str, *args: Any, **kwargs: Any) -> Any:
+        return MatchResult(
+            mode="full",
+            wb=Product(marketplace="wb", id=wb_id),
+            candidates=[
+                Candidate(
+                    product=Product(marketplace="ozon", id="42", title="Корзина", price_rub=100),
+                    score=0.9,
+                    verdict=Verdict(said="match", reason="то же изделие"),
+                )
+            ],
+        )
+
+    monkeypatch.setattr(agent, "match", fake_match)
+    monkeypatch.setattr(agent, "_client", lambda name: None)
+
+    result = asyncio.run(agent.match_ozon.handler({"wb_id": "1"}))
+
+    assert list(result) == ["content"]
+    assert result["content"][0]["type"] == "text"
+    assert "42" in result["content"][0]["text"]
+
+
 def test_plugin_declares_the_skill_it_promises() -> None:
     """Имя скилла собрано из манифеста: разъедься они, скилл молча выпал бы из allowlist."""
     manifest = json.loads((agent.PLUGIN_DIR / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
@@ -202,8 +229,8 @@ def test_plugin_declares_the_skill_it_promises() -> None:
     assert (agent.PLUGIN_DIR / "skills" / skill_name / "SKILL.md").is_file()
 
 
-def test_router_sees_both_tools() -> None:
-    assert agent.router_options().allowed_tools == [agent.SEARCH_TOOL, agent.SQL_TOOL]
+def test_router_sees_all_tools() -> None:
+    assert agent.router_options().allowed_tools == [agent.SEARCH_TOOL, agent.SQL_TOOL, agent.MATCH_TOOL]
     assert agent.build_options().allowed_tools == [agent.SEARCH_TOOL]
     assert agent.sql_options().allowed_tools == [agent.SQL_TOOL]
 

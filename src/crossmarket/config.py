@@ -52,6 +52,18 @@ RETRIEVAL_MIN_SCORE = float(os.getenv("RETRIEVAL_MIN_SCORE", "0.0"))
 и у вопросов вне корпуса пересекаются, замер в `evals/results.md`. Параметр оставлен,
 на большем корпусе разделяющая точка может появиться."""
 
+MATCH_MODEL = os.getenv("MATCH_MODEL", "claude-sonnet-5")
+"""Модель подтверждения в tool B, задаётся отдельно от модели оркестратора."""
+
+MATCH_CANDIDATE_LIMIT = int(os.getenv("MATCH_CANDIDATE_LIMIT", "5"))
+"""Глубина выдачи кандидатов с Озона. Каждый кандидат стоит вызова модели
+подтверждения; замер на 118 матч-парах — recall@5 = 1.000."""
+
+MATCH_MIN_SCORE = float(os.getenv("MATCH_MIN_SCORE", "0.0"))
+"""Порог отсечки кандидатов, 0.0 — порога нет. Распределения пересекаются: скор
+настоящего партнёра 0.831–0.950, топ-1 у товаров без пары 0.800–0.925 при медиане
+0.860. Замер в `evals/results.md`."""
+
 AGENT_MODEL = os.getenv("AGENT_MODEL", "claude-opus-5")
 AGENT_MAX_TURNS = int(os.getenv("AGENT_MAX_TURNS", "6"))
 AGENT_MAX_BUDGET_USD = float(os.getenv("AGENT_MAX_BUDGET_USD", "0.5"))

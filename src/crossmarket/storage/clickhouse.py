@@ -59,6 +59,13 @@ ORDER BY (marketplace, id)
 
 
 def connect() -> Client:
+    """Клиент без сессии — `autogenerate_session_id=False` снимать нельзя.
+
+    С сессией драйвер отбивает второй запрос по тому же клиенту, пока не ответил
+    первый («Attempt to execute concurrent queries within the same session»). Клиент
+    здесь один на процесс, а ходят в него параллельно: агент запускает тулы одного
+    хода одновременно, tool B подтверждает кандидатов пачкой.
+    """
     import clickhouse_connect
 
     return clickhouse_connect.get_client(
@@ -67,6 +74,7 @@ def connect() -> Client:
         username=CLICKHOUSE_USER,
         password=CLICKHOUSE_PASSWORD,
         database=CLICKHOUSE_DB,
+        autogenerate_session_id=False,
     )
 
 
@@ -101,7 +109,7 @@ def to_row(product: Product) -> list[object]:
 def fetch_products(client: Client, keys: list[tuple[str, str]]) -> dict[tuple[str, str], Product]:
     """Карточки по ключам `(marketplace, id)`, в словаре по тому же ключу.
 
-    Нужно тулу A: в payload Qdrant лежат только id, категория и цена, а отвечать
+    Нужно тулам A и B: в payload Qdrant лежат только id, категория и цена, а отвечать
     надо по названию, описанию и характеристикам. `FINAL` обязателен — до слияния
     кусков ReplacingMergeTree держит обе версии строки, и без него на карточку
     придут дубли с разным `collected_at`.

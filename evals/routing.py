@@ -1,13 +1,13 @@
-"""Сюита роутинга: вопрос → агент с обоими тулами → какой тул он выбрал.
+"""Сюита роутинга: вопрос → агент со всеми тулами → какой тул он выбрал.
 
 Метрика считается по вызовам тулов, а не по тексту ответа: качество самих ответов
-меряют сюиты A и C, здесь предмет замера — выбор.
+меряют сюиты A, B и C, здесь предмет замера — выбор.
 
 Вызовы скилла из последовательности вычищаются: `Skill` — служебный тул, к развилке
-A/C отношения не имеющий. Что скилл вообще звался, остаётся диагностикой `skill_used`.
+между тулами отношения не имеющий. Что скилл вообще звался, остаётся диагностикой `skill_used`.
 
-Мультихоповые кейсы в accuracy не входят: правильных вызовов там два, и порядок между
-ними вопросом не задан. Они печатаются целиком и читаются глазами.
+Мультихоповые кейсы в accuracy не входят: правильных вызовов там несколько, и порядок
+между ними вопросом задан не всегда. Они печатаются целиком и читаются глазами.
 """
 
 from __future__ import annotations
@@ -18,14 +18,23 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from crossmarket.agent import LIMIT_SUBTYPES, SEARCH_TOOL, SQL_TOOL, Answer, ask, flush_langfuse, router_options
+from crossmarket.agent import (
+    LIMIT_SUBTYPES,
+    MATCH_TOOL,
+    SEARCH_TOOL,
+    SQL_TOOL,
+    Answer,
+    ask,
+    flush_langfuse,
+    router_options,
+)
 from crossmarket.config import AGENT_MODEL
 from evals.cases import ROUTING_TOOLS, RoutingCase, split_summary
 from evals.report import Table, print_tables, write_report
 
 RUNS_DIR = Path("evals/runs")
 
-FULL_NAMES = {SEARCH_TOOL.rsplit("__", 1)[-1]: SEARCH_TOOL, SQL_TOOL.rsplit("__", 1)[-1]: SQL_TOOL}
+FULL_NAMES = {tool.rsplit("__", 1)[-1]: tool for tool in (SEARCH_TOOL, SQL_TOOL, MATCH_TOOL)}
 """Короткое имя лейбла → полное имя MCP-тула. Нужно на перегрейде: в дампе лежат
 короткие имена, а `Answer` собирается с полными."""
 
@@ -331,10 +340,10 @@ def report(rows: list[dict[str, Any]], limits: str, use_mlflow: bool, dump: Path
 
     path = write_report(
         name,
-        "Роутинг A+C: какой тул выбирает оркестратор",
+        "Роутинг A+B+C: какой тул выбирает оркестратор",
         "Accuracy роутинга — доля однохоповых вопросов, где первым вызванным тулом оказался "
         "размеченный. Вызовы скилла из последовательности вычищены. Мультихоповые кейсы в метрику "
-        "не входят: правильных вызовов там два, и порядок между ними вопросом не задан.",
+        "не входят: правильных вызовов там несколько, и порядок между ними вопросом задан не всегда.",
         {
             "оркестратор": AGENT_MODEL,
             "лимиты": limits,

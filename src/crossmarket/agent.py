@@ -1,4 +1,4 @@
-"""Агент на Claude Agent SDK и его тулы: поиск по ВБ (A) и SQL к снапшоту (C).
+"""Агент на Claude Agent SDK и его тулы: поиск по ВБ (A), матчинг с Озоном (B) и SQL (C).
 
 Запрет live-fetch исполнен конфигурацией: `tools` не содержит `WebFetch`, `WebSearch`,
 `Bash` и `Read`, `permission_mode="dontAsk"` не даёт исполниться ничему вне
@@ -11,7 +11,7 @@
 бросает исключение; обрабатывается и то и другое.
 
 Тулы регистрируются в одном MCP-сервере, а разводятся по `allowed_tools`: у сюиты A
-виден только `search_wb`, у C — только `execute_sql`, у роутера оба.
+виден только `search_wb`, у C — только `execute_sql`, у роутера все три.
 
 Знание о схеме БД подключается скиллом плагина, а не читается в промпт.
 `setting_sources=[]` тут несёт смысл ограничения: с `["project"]` вместе со скиллами
@@ -42,6 +42,8 @@ from claude_agent_sdk import (
 )
 
 from crossmarket.config import AGENT_MAX_BUDGET_USD, AGENT_MAX_TURNS, AGENT_MODEL, RETRIEVAL_MIN_SCORE
+from crossmarket.matching import format_result as format_match
+from crossmarket.matching import match
 from crossmarket.retrieval import format_hits, search_products
 from crossmarket.sql import format_result, run_sql
 from crossmarket.storage import clickhouse, qdrant
@@ -58,6 +60,7 @@ _sdk_query = importlib.import_module("claude_agent_sdk.query")
 SERVER_NAME = "crossmarket"
 SEARCH_TOOL = f"mcp__{SERVER_NAME}__search_wb"
 SQL_TOOL = f"mcp__{SERVER_NAME}__execute_sql"
+MATCH_TOOL = f"mcp__{SERVER_NAME}__match_ozon"
 
 PLUGIN_DIR = Path(__file__).resolve().parents[2]
 """Корень репозитория объявлен плагином: манифест лежит в `.claude-plugin/plugin.json`,
@@ -163,7 +166,42 @@ async def execute_sql(args: dict[str, Any]) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": format_result(result)}]}
 
 
-SERVER = create_sdk_mcp_server(SERVER_NAME, "1.0.0", [search_wb, execute_sql])
+MATCH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "wb_id": {"type": "string", "description": "Идентификатор товара Wildberries из выдачи search_wb."},
+        "ozon_id": {
+            "type": "string",
+            "description": "Идентификатор карточки Ozon, если она уже названа в вопросе. "
+            "Без него кандидаты ищутся по снапшоту Ozon.",
+        },
+    },
+    "required": ["wb_id"],
+}
+
+
+@tool(
+    "match_ozon",
+    "Найти на Ozon тот же самый товар, что и карточка Wildberries, либо проверить, один ли товар в заданной паре. "
+    "Возвращает только подтверждённые карточки; ничего не подтвердилось — так и говорит.",
+    MATCH_SCHEMA,
+)
+async def match_ozon(args: dict[str, Any]) -> dict[str, Any]:
+    """Обёртка над `crossmarket.matching`: поиск кандидатов и модель подтверждения там.
+
+    Асинхронный, а не через `to_thread`: внутри параллельные вызовы модели, синхронные
+    куски уезжают в потоки на своём уровне.
+    """
+    result = await match(
+        args["wb_id"],
+        _client("qdrant"),
+        _client("clickhouse"),
+        ozon_id=args.get("ozon_id") or None,
+    )
+    return {"content": [{"type": "text", "text": format_match(result)}]}
+
+
+SERVER = create_sdk_mcp_server(SERVER_NAME, "1.0.0", [search_wb, execute_sql, match_ozon])
 
 SQL_RULES = f"""Схему таблицы, ловушки этих данных и особенности диалекта ClickHouse
 знает скилл {SQL_SKILL}. Вызови его перед первым SQL-запросом — сразу и молча, не объявляя
@@ -197,7 +235,7 @@ SQL_SYSTEM_PROMPT = f"""Ты отвечаешь на вопросы о това�
 """
 
 ROUTER_SYSTEM_PROMPT = f"""Ты отвечаешь на вопросы о товарах Wildberries и Ozon по
-снапшоту базы. У тебя два тула, и первое решение по каждому вопросу — какой из них взять.
+снапшоту базы. У тебя три тула, и первое решение по каждому вопросу — какой из них взять.
 
 search_wb ищет карточки по смыслу запроса в коллекции Wildberries. Бери его, когда
 ответ нужно доставать из текста карточки: что это за товар, для чего он, из чего сделан,
@@ -208,11 +246,26 @@ execute_sql считает по снапшоту обеих площадок. Б
 упорядоченный список по полям карточки: среднее, минимум, максимум, медиана, количество,
 топ-N по цене, сравнение площадок или категорий между собой.
 
-Развилка одной фразой: спрашивают «какой товар подойдёт» — это search_wb, спрашивают
-«сколько, средняя, самый, больше ли» — это execute_sql.
+match_ozon ищет на Ozon тот же самый товар, что и заданная карточка Wildberries, и
+проверяет пары. Бери его, когда спрошено про один конкретный товар и вторую площадку:
+есть ли он на Ozon, продаётся ли то же самое там, один ли товар в названной паре.
+Тулу нужен идентификатор карточки Wildberries. Если он уже назван в вопросе, передавай
+его в match_ozon сразу — искать эту карточку отдельно не нужно. Если id в вопросе нет,
+сначала найди товар через search_wb, потом передай найденный id в match_ozon. Названный
+в вопросе идентификатор карточки Ozon передавай вторым параметром.
 
-Если вопрос честно требует обоих — сначала найди товар через search_wb, потом посчитай
-по нему через execute_sql. Но не зови второй тул просто на всякий случай.
+Развилка одной фразой: спрашивают «какой товар подойдёт» — это search_wb, спрашивают
+«сколько, средняя, самый, больше ли» — это execute_sql, спрашивают «есть ли этот товар
+на другой площадке, тот же ли это товар» — это match_ozon.
+
+Считать и сравнивать по площадкам в целом — работа execute_sql, а не match_ozon: тот
+отвечает про один товар, а не про выборку.
+
+Если match_ozon не подтвердил ни одного кандидата, так и отвечай: такого товара на Ozon
+в базе нет. Похожий за найденный не выдавай, даже если он очень близок.
+
+Если вопрос честно требует нескольких тулов — сначала найди товар через search_wb, потом
+зови следующий. Но не зови лишний тул просто на всякий случай.
 
 {SQL_RULES}
 
@@ -279,12 +332,12 @@ def sql_options(max_turns: int = AGENT_MAX_TURNS, max_budget_usd: float = AGENT_
 def router_options(
     max_turns: int = AGENT_MAX_TURNS, max_budget_usd: float = AGENT_MAX_BUDGET_USD
 ) -> ClaudeAgentOptions:
-    """Конфигурация роутера: видны оба тула, выбор между ними делает модель."""
+    """Конфигурация роутера: видны все три тула, выбор между ними делает модель."""
     return build_options(
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
         system_prompt=ROUTER_SYSTEM_PROMPT,
-        allowed_tools=[SEARCH_TOOL, SQL_TOOL],
+        allowed_tools=[SEARCH_TOOL, SQL_TOOL, MATCH_TOOL],
         skills=[SQL_SKILL],
     )
 
@@ -366,6 +419,10 @@ def collect(messages: list[Any], result: ResultMessage | None, error: Exception 
 def instrument_langfuse() -> bool:
     """Включить трейсинг агента, если ключи Langfuse заданы. Повторный вызов бесплатен.
 
+    Недоступность облака не поднимает исключение, а печатает причину и возвращает
+    `False`: платный прогон от неё не должен сниматься, но и молчать нельзя — случай 1
+    в `docs/failures.md`.
+
     Инструментор OpenInference, а не `@observe`: агент гоняет CLI дочерним процессом,
     и декоратор на наших функциях показал бы только их, оставив внутренний цикл SDK
     чёрным ящиком.
@@ -374,8 +431,12 @@ def instrument_langfuse() -> bool:
     from openinference.instrumentation.claude_agent_sdk import ClaudeAgentSDKInstrumentor
 
     global _langfuse
-    client = get_client()
-    if not client.auth_check():
+    try:
+        client = get_client()
+        if not client.auth_check():
+            return False
+    except Exception as exc:  # noqa: BLE001 — Langfuse в облаке, сеть отваливается
+        print(f"Langfuse недоступен, прогон идёт без трейсов: {type(exc).__name__}: {exc}")
         return False
     instrumentor = ClaudeAgentSDKInstrumentor()
     if not instrumentor.is_instrumented_by_opentelemetry:

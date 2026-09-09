@@ -134,13 +134,13 @@ def validate_sql_cases(cases: list[SqlCase]) -> list[str]:
     return problems
 
 
-ROUTING_TOOLS = ("search_wb", "execute_sql")
+ROUTING_TOOLS = ("search_wb", "execute_sql", "match_ozon")
 """Лейблы роутинга — короткие имена тулов. Полное имя из вызова
 (`mcp__crossmarket__search_wb`) сравнивается с ними по суффиксу."""
 
 MULTIHOP = "multihop"
-"""Страта цепочек A→C. В accuracy не входит: однохоповых вопросов в наборе 36, а
-мультихоповых столько, что метрика по ним ничего не различала бы. Они читаются глазами."""
+"""Страта цепочек между тулами. В accuracy не входит: правильных вызовов там несколько,
+а порядок между ними вопросом задан не всегда. Такие кейсы читаются глазами."""
 
 
 @dataclass

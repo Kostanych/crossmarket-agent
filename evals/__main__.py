@@ -5,7 +5,8 @@
     python -m evals qa [--first N] [--verbose]        end-to-end прогон агента, платный
     python -m evals sql [--first N] [--verbose]      text2sql к ClickHouse, платный
     python -m evals routing [--first N] [--verbose]  выбор тула на однохоповых вопросах, платный
-    python -m evals all                              все четыре сюиты — цель `make eval`
+    python -m evals matching [--mode] [--repeat N]   матчинг ВБ↔Озон на размеченных парах, платный
+    python -m evals all                              все пять сюит — цель `make eval`
 
 Прогресс и таблицы идут в stdout, отчёт — в `evals/reports/`, метрики — в MLflow.
 """
@@ -16,8 +17,9 @@ import argparse
 import sys
 from pathlib import Path
 
+from crossmarket.config import MATCH_MODEL
 from crossmarket.embedding import COMPOSITIONS, DEFAULT_COMPOSITION
-from evals import check, qa, retrieval, routing
+from evals import check, matching, qa, retrieval, routing
 from evals import sql as sql_suite
 from evals.cases import GOLDEN_FILE, load_cases
 
@@ -74,6 +76,14 @@ def main() -> None:
     sqler.add_argument("--verbose", action="store_true", help="печатать SQL агента и ответы")
     sqler.add_argument("--tag", help="суффикс отчёта и дампа")
 
+    matcher = suites.add_parser("matching", parents=[common], help="матчинг ВБ↔Озон на размеченных парах (платный)")
+    matcher.add_argument("--mode", choices=("pair", "full", "both"), default="pair", help="какой режим B мерить")
+    matcher.add_argument("--split", choices=("test", "calibration", "all"), default="test")
+    matcher.add_argument("--repeat", type=int, default=1, help="прогонов вырожденного режима для усреднения")
+    matcher.add_argument("--model", default=MATCH_MODEL, help="модель подтверждения")
+    matcher.add_argument("--first", type=int, help="прогнать только первые N пар")
+    matcher.add_argument("--tag", help="суффикс отчёта и дампа")
+
     router = suites.add_parser("routing", parents=[common], help="выбор тула на однохоповых вопросах (платный)")
     router.add_argument("--first", type=int, help="прогнать только первые N вопросов")
     router.add_argument("--max-turns", type=int, default=None)
@@ -83,10 +93,14 @@ def main() -> None:
 
     regrader = suites.add_parser("regrade", parents=[common], help="пересчитать метрики сохранённого прогона, без LLM")
     regrader.add_argument(
-        "--of", dest="regrade_suite", choices=("qa", "sql", "routing"), default="qa", help="какую сюиту пересчитать"
+        "--of",
+        dest="regrade_suite",
+        choices=("qa", "sql", "routing", "matching"),
+        default="qa",
+        help="какую сюиту пересчитать",
     )
     regrader.add_argument("--tag", help="какой прогон пересчитать")
-    suites.add_parser("all", parents=[common], help="retrieval + qa + sql + routing, корпус с фоном")
+    suites.add_parser("all", parents=[common], help="retrieval + qa + sql + routing + matching, корпус с фоном")
 
     args = parser.parse_args()
     use_mlflow = not args.no_mlflow
@@ -95,7 +109,12 @@ def main() -> None:
         raise SystemExit(check.run(args.golden, assign=args.assign, categories=args.categories, pairs=args.pairs))
 
     if args.suite == "regrade":
-        modules = {"sql": (sql_suite, "sql_c"), "routing": (routing, "routing"), "qa": (qa, "qa_wb")}
+        modules = {
+            "sql": (sql_suite, "sql_c"),
+            "routing": (routing, "routing"),
+            "qa": (qa, "qa_wb"),
+            "matching": (matching, "matching_b"),
+        }
         module, base = modules[args.regrade_suite]
         module.regrade(use_mlflow, name=_run_name(base, args.tag))
         return
@@ -142,6 +161,28 @@ def main() -> None:
             verbose=getattr(args, "verbose", False),
             use_mlflow=use_mlflow,
             name=_run_name("sql_c", getattr(args, "tag", None)),
+        )
+
+    if args.suite in ("matching", "all"):
+        from crossmarket.agent import instrument_langfuse
+        from evals.pairs import load_pairs
+
+        split = getattr(args, "split", "test")
+        pairs = [pair for pair in load_pairs() if split == "all" or pair.split == split]
+        first = getattr(args, "first", None)
+        pairs = pairs[:first] if first else pairs
+        mode = getattr(args, "mode", "pair")
+        model = getattr(args, "model", MATCH_MODEL)
+        traced = "включён" if instrument_langfuse() else "нет ключей"
+        print(f"\nПар {len(pairs)} (сплит {split}), режим {mode}, трейсинг Langfuse: {traced}\n")
+        matching.run(
+            pairs,
+            mode=mode,
+            model=model,
+            repeat=getattr(args, "repeat", 1),
+            use_mlflow=use_mlflow,
+            split=split,
+            name=_run_name("matching_b", getattr(args, "tag", None)),
         )
 
     if args.suite in ("routing", "all"):
