@@ -48,21 +48,20 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-large")
 EMBEDDING_DIM = 1024
 
 RETRIEVAL_MIN_SCORE = float(os.getenv("RETRIEVAL_MIN_SCORE", "0.0"))
-"""Порог отсечки в tool A. 0.0 — порога нет: распределения скоров у настоящих ответов
-и у вопросов вне корпуса пересекаются, замер в `evals/results.md`. Параметр оставлен,
-на большем корпусе разделяющая точка может появиться."""
+"""Порог отсечки в tool A; 0.0 — порога нет. Замер — `evals/results.md`."""
 
 MATCH_MODEL = os.getenv("MATCH_MODEL", "claude-sonnet-5")
 """Модель подтверждения в tool B, задаётся отдельно от модели оркестратора."""
 
 MATCH_CANDIDATE_LIMIT = int(os.getenv("MATCH_CANDIDATE_LIMIT", "5"))
-"""Глубина выдачи кандидатов с Озона. Каждый кандидат стоит вызова модели
-подтверждения; замер на 118 матч-парах — recall@5 = 1.000."""
+"""Глубина выдачи кандидатов с Озона; каждый кандидат — отдельный вызов
+модели подтверждения."""
 
 MATCH_MIN_SCORE = float(os.getenv("MATCH_MIN_SCORE", "0.0"))
-"""Порог отсечки кандидатов, 0.0 — порога нет. Распределения пересекаются: скор
-настоящего партнёра 0.831–0.950, топ-1 у товаров без пары 0.800–0.925 при медиане
-0.860. Замер в `evals/results.md`."""
+"""Порог отсечки кандидатов в tool B; 0.0 — порога нет. Замер — `evals/results.md`."""
+
+JUDGE_MODEL = os.getenv("JUDGE_MODEL", "claude-sonnet-5")
+"""Модель судей eval-контура (`evals/judges.py`)."""
 
 AGENT_MODEL = os.getenv("AGENT_MODEL", "claude-opus-5")
 AGENT_MAX_TURNS = int(os.getenv("AGENT_MAX_TURNS", "6"))

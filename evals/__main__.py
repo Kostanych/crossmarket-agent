@@ -1,11 +1,12 @@
 """CLI харнесса: `python -m evals <сюита>`.
 
-    python -m evals check [--assign] [--categories] [--pairs]   валидация golden-set, без LLM
+    python -m evals check [--assign] [--categories] [--pairs] [--qa-sample|--qa-answers]  валидация, без LLM
     python -m evals retrieval [--text СОСТАВ...]      recall@k и MRR
     python -m evals qa [--first N] [--verbose]        end-to-end прогон агента, платный
     python -m evals sql [--first N] [--verbose]      text2sql к ClickHouse, платный
     python -m evals routing [--first N] [--verbose]  выбор тула на однохоповых вопросах, платный
     python -m evals matching [--mode] [--repeat N]   матчинг ВБ↔Озон на размеченных парах, платный
+    python -m evals judge --of qa|b|c [--split] [--apply]  согласие судьи с истиной, платный
     python -m evals all                              все пять сюит — цель `make eval`
 
 Прогресс и таблицы идут в stdout, отчёт — в `evals/reports/`, метрики — в MLflow.
@@ -17,9 +18,9 @@ import argparse
 import sys
 from pathlib import Path
 
-from crossmarket.config import MATCH_MODEL
+from crossmarket.config import JUDGE_MODEL, MATCH_MODEL
 from crossmarket.embedding import COMPOSITIONS, DEFAULT_COMPOSITION
-from evals import check, matching, qa, retrieval, routing
+from evals import check, judges, matching, qa, retrieval, routing
 from evals import sql as sql_suite
 from evals.cases import GOLDEN_FILE, load_cases
 
@@ -50,6 +51,8 @@ def main() -> None:
     checker.add_argument("--assign", action="store_true", help="проставить сплит новым кейсам")
     checker.add_argument("--categories", action="store_true", help="напечатать категории корпуса")
     checker.add_argument("--pairs", action="store_true", help="сплиты размеченных пар ВБ↔Озон")
+    checker.add_argument("--qa-answers", action="store_true", help="проверить ручную разметку ответов под судью-QA")
+    checker.add_argument("--qa-sample", action="store_true", help="собрать заготовку разметки ответов, не теряя меток")
 
     finder = suites.add_parser("retrieval", parents=[common], help="recall@k и MRR")
     finder.add_argument("--limit", type=int, default=max(retrieval.K_VALUES), help="глубина выдачи")
@@ -84,6 +87,18 @@ def main() -> None:
     matcher.add_argument("--first", type=int, help="прогнать только первые N пар")
     matcher.add_argument("--tag", help="суффикс отчёта и дампа")
 
+    judger = suites.add_parser("judge", parents=[common], help="согласие судьи с истиной (платный)")
+    judger.add_argument("--of", dest="judge", choices=tuple(judges.JUDGES), required=True, help="какой судья")
+    judger.add_argument("--split", choices=("test", "calibration", "all"), default="test")
+    judger.add_argument("--model", default=JUDGE_MODEL, help="модель судьи")
+    judger.add_argument("--first", type=int, help="прогнать только первые N кейсов")
+    judger.add_argument("--tag", help="суффикс отчёта и дампа")
+    judger.add_argument(
+        "--apply",
+        action="store_true",
+        help="судья-B на карточках вне разметки: истины нет, цифр согласия нет",
+    )
+
     router = suites.add_parser("routing", parents=[common], help="выбор тула на однохоповых вопросах (платный)")
     router.add_argument("--first", type=int, help="прогнать только первые N вопросов")
     router.add_argument("--max-turns", type=int, default=None)
@@ -95,7 +110,7 @@ def main() -> None:
     regrader.add_argument(
         "--of",
         dest="regrade_suite",
-        choices=("qa", "sql", "routing", "matching"),
+        choices=("qa", "sql", "routing", "matching", "judge-qa", "judge-b", "judge-c"),
         default="qa",
         help="какую сюиту пересчитать",
     )
@@ -106,7 +121,16 @@ def main() -> None:
     use_mlflow = not args.no_mlflow
 
     if args.suite == "check":
-        raise SystemExit(check.run(args.golden, assign=args.assign, categories=args.categories, pairs=args.pairs))
+        raise SystemExit(
+            check.run(
+                args.golden,
+                assign=args.assign,
+                categories=args.categories,
+                pairs=args.pairs,
+                qa_answers=args.qa_answers,
+                qa_sample=args.qa_sample,
+            )
+        )
 
     if args.suite == "regrade":
         modules = {
@@ -114,6 +138,9 @@ def main() -> None:
             "routing": (routing, "routing"),
             "qa": (qa, "qa_wb"),
             "matching": (matching, "matching_b"),
+            "judge-qa": (judges, "judge_qa"),
+            "judge-b": (judges, "judge_b"),
+            "judge-c": (judges, "judge_c"),
         }
         module, base = modules[args.regrade_suite]
         module.regrade(use_mlflow, name=_run_name(base, args.tag))
@@ -184,6 +211,23 @@ def main() -> None:
             split=split,
             name=_run_name("matching_b", getattr(args, "tag", None)),
         )
+
+    if args.suite == "judge":
+        from crossmarket.agent import instrument_langfuse
+
+        print(f"\nтрейсинг Langfuse: {'включён' if instrument_langfuse() else 'нет ключей'}")
+        if args.apply:
+            judges.apply_run(model=args.model, first=args.first, name=_run_name("judge_b_apply", args.tag))
+            return
+        judges.run(
+            args.judge,
+            split=args.split,
+            model=args.model,
+            first=args.first,
+            use_mlflow=use_mlflow,
+            name=_run_name(f"judge_{args.judge}", args.tag),
+        )
+        return
 
     if args.suite in ("routing", "all"):
         from crossmarket.agent import instrument_langfuse

@@ -1,7 +1,7 @@
-"""Проверка golden-set без вызовов LLM.
+"""Проверка golden-set, пар ВБ↔Озон и набора ответов без вызовов LLM.
 
-Нужна там, где вопросы дописываются руками: отрицательный кейс годится, только если
-в корпусе действительно нет ответа.
+Для отрицательных кейсов печатаются ближайшие настоящие карточки — проверить глазами,
+что ответа в корпусе нет.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from crossmarket.models import Product
 from crossmarket.sql import run_sql
 from crossmarket.storage import clickhouse, qdrant
 from crossmarket.storage.jsonl import load_products
+from evals import answers as answers_module
 from evals import pairs as pairs_module
 from evals.cases import (
     assign_splits,
@@ -32,8 +33,7 @@ NEIGHBOURS = 5
 """Сколько настоящих карточек показать по отрицательному вопросу."""
 
 NEIGHBOUR_DEPTH = 40
-"""Глубина выдачи, из которой они выбираются: дистракторов вчетверо больше настоящих
-карточек, и настоящий сосед легко оказывается ниже топ-10."""
+"""Глубина выдачи, из которой они выбираются; дистракторы из неё отбрасываются."""
 
 
 def _corpus() -> dict[str, Product]:
@@ -59,12 +59,33 @@ def check_pairs(assign: bool = False) -> list[str]:
     return pairs_module.validate(pairs)
 
 
-def check_sql_cases(assign: bool = False) -> list[str]:
-    """Golden-set тула C: схема кейсов плюс исполнимость каждого эталонного SQL.
+def check_answers(sample: bool = False) -> list[str]:
+    """Набор ответов под судью-QA: собрать заготовку, если просят, и проверить разметку.
 
-    Эталон хранится запросом, а не строками, поэтому проверять его надо прогоном:
-    переименованная категория превратила бы кейс в вечный промах молча. Пустой
-    результат допустим только в страте `empty` — и обязателен в ней.
+    Пересборка не теряет проставленные вердикты: они переносятся по идентификатору.
+    """
+    existing = answers_module.load_answers()
+    if sample:
+        fresh = answers_module.merge(answers_module.sample(), existing)
+        answers_module.save_answers(fresh)
+        readable = answers_module.write_readable(fresh)
+        print(f"Заготовка разметки: {answers_module.ANSWERS_FILE} (метки), {readable} (читать)")
+        print(f"Было размечено: {len(existing)}")
+        existing = fresh
+    if not existing:
+        return [f"{answers_module.ANSWERS_FILE} пуст, собрать заготовку: python -m evals check --qa-sample"]
+
+    print(f"\n{answers_module.summary(existing)}")
+    strata: dict[str, int] = {}
+    for case in existing:
+        strata[case.stratum] = strata.get(case.stratum, 0) + 1
+    print(f"Страты ответов: {dict(sorted(strata.items()))}")
+    return answers_module.validate(existing)
+
+
+def check_sql_cases(assign: bool = False) -> list[str]:
+    """Golden-set тула C: схема кейсов и исполнимость эталонных SQL. Пустой
+    результат допустим только в страте `empty` и обязателен в ней.
     """
     cases = load_sql_cases()
     if assign and (changed := assign_splits(cases)):
@@ -90,8 +111,7 @@ def check_sql_cases(assign: bool = False) -> list[str]:
 
 
 def check_routing_cases(assign: bool = False) -> list[str]:
-    """Golden-set роутинга: схема кейсов и страты. Базы тут не нужны — лейбл проверяется
-    глазами при написании вопроса, а не запросом."""
+    """Golden-set роутинга: схема кейсов и страты, без обращения к базам."""
     cases = load_routing_cases()
     if assign and (changed := assign_splits(cases)):
         save_routing_cases(cases)
@@ -106,7 +126,14 @@ def check_routing_cases(assign: bool = False) -> list[str]:
     return validate_routing_cases(cases)
 
 
-def run(path: Path, assign: bool = False, categories: bool = False, pairs: bool = False) -> int:
+def run(
+    path: Path,
+    assign: bool = False,
+    categories: bool = False,
+    pairs: bool = False,
+    qa_answers: bool = False,
+    qa_sample: bool = False,
+) -> int:
     """Ноль — файл в порядке. Ненулевой код возврата ломает `make eval` до трат."""
     cases = load_cases(path)
     print(f"Кейсов {len(cases)}, из них с ответом в корпусе {sum(c.expected == 'found' for c in cases)}")
@@ -120,6 +147,8 @@ def run(path: Path, assign: bool = False, categories: bool = False, pairs: bool 
     problems += check_routing_cases(assign)
     if pairs:
         problems += check_pairs(assign)
+    if qa_answers or qa_sample:
+        problems += check_answers(qa_sample)
     corpus = _corpus()
     for case in cases:
         for product_id in case.relevant_ids:

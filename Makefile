@@ -3,7 +3,7 @@
 
 POETRY ?= poetry run
 
-.PHONY: up eval eval-retrieval eval-qa eval-sql eval-routing eval-matching check test lint
+.PHONY: up eval eval-retrieval eval-qa eval-sql eval-routing eval-matching judges check test lint
 
 up:                       ## Qdrant и ClickHouse
 	docker compose --profile infra up -d
@@ -28,6 +28,11 @@ eval-routing:             ## только выбор тула на однохо�
 
 eval-matching:            ## только матчинг ВБ↔Озон на размеченных парах (платный)
 	$(POETRY) python -m evals matching
+
+judges:                   ## согласие трёх судей с истиной на тест-сплитах (платный)
+	$(POETRY) python -m evals judge --of qa
+	$(POETRY) python -m evals judge --of b
+	$(POETRY) python -m evals judge --of c
 
 test:
 	$(POETRY) pytest
