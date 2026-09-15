@@ -1,0 +1,30 @@
+# Правила Prometheus; Grafana показывает их в Alerting как правила источника данных.
+# Доступность самого агента не проверяется.
+
+groups:
+  - name: crossmarket
+    rules:
+      - alert: DatabaseDown
+        expr: up{job=~"qdrant|clickhouse"} == 0
+        for: 1m
+        annotations:
+          summary: "{{ $labels.job }} is down: the agent can only refuse"
+
+      - alert: ChatSpendHigh
+        expr: sum(increase(chat_cost_usd_sum[1h])) > 2
+        annotations:
+          summary: "/chat spend over the last hour is ${{ $value | printf \"%.2f\" }}, threshold $2"
+
+      - alert: ChatFailureRate
+        expr: >
+          sum(rate(chat_requests_total{outcome!="ok"}[10m]))
+          / sum(rate(chat_requests_total[10m])) > 0.2
+        for: 5m
+        annotations:
+          summary: "SDK errors and limit cut-offs: {{ $value | humanizePercentage }} of /chat requests"
+
+      - alert: ChatLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(chat_duration_seconds_bucket[10m]))) > 60
+        for: 10m
+        annotations:
+          summary: "/chat p95 latency is {{ $value | printf \"%.0f\" }} s, threshold 60 s"

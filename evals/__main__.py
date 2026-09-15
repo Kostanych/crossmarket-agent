@@ -8,6 +8,7 @@
     python -m evals matching [--mode] [--repeat N]   матчинг ВБ↔Озон на размеченных парах, платный
     python -m evals judge --of qa|b|c [--split] [--apply]  согласие судьи с истиной, платный
     python -m evals all                              все пять сюит — цель `make eval`
+    python -m evals cost                             стоимость сохранённых прогонов, без LLM
 
 Прогресс и таблицы идут в stdout, отчёт — в `evals/reports/`, метрики — в MLflow.
 """
@@ -20,7 +21,7 @@ from pathlib import Path
 
 from crossmarket.config import JUDGE_MODEL, MATCH_MODEL
 from crossmarket.embedding import COMPOSITIONS, DEFAULT_COMPOSITION
-from evals import check, judges, matching, qa, retrieval, routing
+from evals import check, cost, judges, matching, qa, retrieval, routing
 from evals import sql as sql_suite
 from evals.cases import GOLDEN_FILE, load_cases
 
@@ -115,6 +116,7 @@ def main() -> None:
         help="какую сюиту пересчитать",
     )
     regrader.add_argument("--tag", help="какой прогон пересчитать")
+    suites.add_parser("cost", parents=[common], help="стоимость сохранённых прогонов, без LLM")
     suites.add_parser("all", parents=[common], help="retrieval + qa + sql + routing + matching, корпус с фоном")
 
     args = parser.parse_args()
@@ -131,6 +133,10 @@ def main() -> None:
                 qa_sample=args.qa_sample,
             )
         )
+
+    if args.suite == "cost":
+        cost.run()
+        return
 
     if args.suite == "regrade":
         modules = {
@@ -161,7 +167,7 @@ def main() -> None:
         from crossmarket.config import AGENT_MAX_BUDGET_USD, AGENT_MAX_TURNS
 
         cases = _cases(args.golden, first=getattr(args, "first", None))
-        print(f"\nвопросов {len(cases)}, трейсинг Langfuse: {'включён' if instrument_langfuse() else 'нет ключей'}\n")
+        print(f"\nвопросов {len(cases)}, трейсинг Langfuse: {instrument_langfuse()}\n")
         qa.run(
             cases,
             limit_turns=getattr(args, "max_turns", None) or AGENT_MAX_TURNS,
@@ -179,7 +185,7 @@ def main() -> None:
         first = getattr(args, "first", None)
         cases = load_sql_cases(SQL_GOLDEN_FILE)
         cases = cases[:first] if first else cases
-        traced = "включён" if instrument_langfuse() else "нет ключей"
+        traced = instrument_langfuse()
         print(f"\nSQL-вопросов {len(cases)}, трейсинг Langfuse: {traced}\n")
         sql_suite.run(
             cases,
@@ -200,7 +206,7 @@ def main() -> None:
         pairs = pairs[:first] if first else pairs
         mode = getattr(args, "mode", "pair")
         model = getattr(args, "model", MATCH_MODEL)
-        traced = "включён" if instrument_langfuse() else "нет ключей"
+        traced = instrument_langfuse()
         print(f"\nПар {len(pairs)} (сплит {split}), режим {mode}, трейсинг Langfuse: {traced}\n")
         matching.run(
             pairs,
@@ -215,7 +221,7 @@ def main() -> None:
     if args.suite == "judge":
         from crossmarket.agent import instrument_langfuse
 
-        print(f"\nтрейсинг Langfuse: {'включён' if instrument_langfuse() else 'нет ключей'}")
+        print(f"\nтрейсинг Langfuse: {instrument_langfuse()}")
         if args.apply:
             judges.apply_run(model=args.model, first=args.first, name=_run_name("judge_b_apply", args.tag))
             return
@@ -237,7 +243,7 @@ def main() -> None:
         first = getattr(args, "first", None)
         cases = load_routing_cases(ROUTING_GOLDEN_FILE)
         cases = cases[:first] if first else cases
-        traced = "включён" if instrument_langfuse() else "нет ключей"
+        traced = instrument_langfuse()
         print(f"\nВопросов роутинга {len(cases)}, трейсинг Langfuse: {traced}\n")
         routing.run(
             cases,

@@ -1,29 +1,25 @@
 """Агент на Claude Agent SDK и его тулы: поиск по ВБ (A), матчинг с Озоном (B) и SQL (C).
 
-Запрет live-fetch исполнен конфигурацией: `tools` не содержит `WebFetch`, `WebSearch`,
-`Bash` и `Read`, `permission_mode="dontAsk"` не даёт исполниться ничему вне
-`allowed_tools`. Единственное, что в `tools` попадает, — встроенный `Skill` у
-конфигураций со скиллом: без него скилл обнаружен, но вызвать его нечем. В сеть он не
-ходит, так что запрет держится.
+Запрет live-fetch исполнен конфигурацией: `tools` не содержит `WebFetch`, `WebSearch`, `Bash` и `Read`,
+`permission_mode="dontAsk"` не даёт исполниться ничему вне `allowed_tools`. В `tools` попадает только встроенный
+`Skill` у конфигураций со скиллом — без него скилл виден, но не вызывается; в сеть он не ходит.
 
-Остановка детерминированная — `max_turns` и `max_budget_usd`. При исчерпании SDK и
-отдаёт `ResultMessage` с `subtype=error_max_turns` / `error_max_budget_usd`, и
-бросает исключение; обрабатывается и то и другое.
+Остановка — `max_turns` и `max_budget_usd`. При исчерпании SDK отдаёт `ResultMessage` с
+`subtype=error_max_turns` / `error_max_budget_usd` и следом бросает исключение; обрабатываются оба.
 
-Тулы регистрируются в одном MCP-сервере, а разводятся по `allowed_tools`: у сюиты A
-виден только `search_wb`, у C — только `execute_sql`, у роутера все три.
+Тулы зарегистрированы в одном MCP-сервере и разводятся по `allowed_tools`: у конфигурации A виден `search_wb`, у
+C — `execute_sql`, у роутера все три.
 
-Знание о схеме БД подключается скиллом плагина, а не читается в промпт.
-`setting_sources=[]` тут несёт смысл ограничения: с `["project"]` вместе со скиллами
-приехал бы `CLAUDE.md` репозитория — 22 тысячи токенов с разбором eval, которым агент
-же и оценивается (замер в CLAUDE.md). Скиллы при этом берутся из `plugins`, для
-которого setting-sources не нужны.
+Схема БД подключается скиллом из `plugins`. `setting_sources=[]` обязателен: с `["project"]` в контекст агента
+попадает `CLAUDE.md` репозитория.
 """
 
 from __future__ import annotations
 
 import asyncio
 import importlib
+import os
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -49,13 +45,19 @@ from crossmarket.sql import format_result, run_sql
 from crossmarket.storage import clickhouse, qdrant
 
 _langfuse: Any = None
-"""Клиент Langfuse, если трейсинг включён. Нужен, чтобы класть в трейс рассуждения:
-инструментор их не переносит, в спанах остаются только вызовы тулов."""
+"""Клиент Langfuse при включённом трейсинге. Через него в трейс пишутся рассуждения: инструментор их не переносит."""
 
 _sdk_query = importlib.import_module("claude_agent_sdk.query")
 """Модуль, а не функция: инструментор OpenInference подменяет атрибут
-`claude_agent_sdk.query:query`, и `from ... import query` заморозил бы ссылку на
-неподменённую версию — трейсы в Langfuse оказались бы пустыми."""
+`claude_agent_sdk.query:query`, и `from ... import query` оставил бы ссылку на неподменённую
+версию — трейсы в Langfuse были бы пустыми.
+"""
+
+_nested_answers: ContextVar[list[Answer] | None] = ContextVar("nested_answers", default=None)
+"""Ответы `ask`, вызванных из обработчика тула, — модели подтверждения B. Их стоимость и
+`model_usage` в `ResultMessage` внешнего прогона не входят. До обработчика список доходит
+копией контекста: SDK запускает его через `create_task`.
+"""
 
 SERVER_NAME = "crossmarket"
 SEARCH_TOOL = f"mcp__{SERVER_NAME}__search_wb"
@@ -63,15 +65,15 @@ SQL_TOOL = f"mcp__{SERVER_NAME}__execute_sql"
 MATCH_TOOL = f"mcp__{SERVER_NAME}__match_ozon"
 
 PLUGIN_DIR = Path(__file__).resolve().parents[2]
-"""Корень репозитория объявлен плагином: манифест лежит в `.claude-plugin/plugin.json`,
-скиллы — в `skills/`, ровно там, где их ждёт формат. Следствие, о котором надо помнить:
-`commands/`, `agents/`, `hooks/` и `.mcp.json`, заведённые в корне, тоже станут частью
-плагина."""
+"""Корень репозитория как плагин: манифест в `.claude-plugin/plugin.json`, скиллы в `skills/`.
+`commands/`, `agents/`, `hooks/` и `.mcp.json` в корне тоже становятся частью плагина.
+"""
 
 PLUGIN_NAME = "crossmarket"
 SQL_SKILL = f"{PLUGIN_NAME}:clickhouse-sql"
-"""Имя из манифеста, а не из имени каталога. Без манифеста SDK взял бы имя папки, и
-переименование репозитория выключило бы скилл из allowlist без единой ошибки."""
+"""Имя плагина берётся из манифеста. Без манифеста SDK взял бы имя каталога, и переименование
+репозитория молча выключило бы скилл из allowlist.
+"""
 
 
 SYSTEM_PROMPT = """Ты отвечаешь на вопросы о товарах Wildberries по снапшоту базы.
@@ -110,7 +112,7 @@ _clients: dict[str, Any] = {}
 
 
 def _client(name: str) -> Any:
-    """Соединения на процесс: агент отвечает на вопросы подряд, переподключаться незачем."""
+    """Клиенты Qdrant и ClickHouse, по одному на процесс."""
     if name not in _clients:
         _clients[name] = qdrant.connect() if name == "qdrant" else clickhouse.connect()
     return _clients[name]
@@ -123,10 +125,9 @@ def _client(name: str) -> Any:
     SEARCH_SCHEMA,
 )
 async def search_wb(args: dict[str, Any]) -> dict[str, Any]:
-    """Обёртка над `crossmarket.retrieval`: тул не знает ни про Qdrant, ни про ClickHouse.
+    """Тул A поверх `crossmarket.retrieval`.
 
-    Поиск синхронный и упирается в видеокарту с сетью, поэтому уезжает в поток —
-    иначе он заблокировал бы цикл событий, в котором SDK разговаривает с CLI.
+    Поиск синхронный и выполняется в потоке: в цикле событий он блокировал бы обмен SDK с CLI.
     """
     hits = await asyncio.to_thread(
         search_products,
@@ -157,10 +158,9 @@ SQL_SCHEMA = {
     SQL_SCHEMA,
 )
 async def execute_sql(args: dict[str, Any]) -> dict[str, Any]:
-    """Обёртка над `crossmarket.sql`: ограничения и разбор ошибки живут там.
+    """Тул C поверх `crossmarket.sql`, где живут ограничения запроса и разбор ошибки.
 
-    Драйвер синхронный и ходит по сети, поэтому запрос уезжает в поток — иначе он
-    заблокировал бы цикл событий, в котором SDK разговаривает с CLI.
+    Драйвер синхронный, запрос выполняется в потоке: в цикле событий он блокировал бы обмен SDK с CLI.
     """
     result = await asyncio.to_thread(run_sql, _client("clickhouse"), args["sql"])
     return {"content": [{"type": "text", "text": format_result(result)}]}
@@ -187,10 +187,8 @@ MATCH_SCHEMA = {
     MATCH_SCHEMA,
 )
 async def match_ozon(args: dict[str, Any]) -> dict[str, Any]:
-    """Обёртка над `crossmarket.matching`: поиск кандидатов и модель подтверждения там.
-
-    Асинхронный, а не через `to_thread`: внутри параллельные вызовы модели, синхронные
-    куски уезжают в потоки на своём уровне.
+    """Тул B поверх `crossmarket.matching`. Асинхронный: вызовы модели подтверждения идут
+    параллельно, синхронные шаги `match` сам отправляет в потоки.
     """
     result = await match(
         args["wb_id"],
@@ -222,9 +220,7 @@ SQL_RULES = f"""Схему таблицы, ловушки этих данных 
 
 В ответе назови полученное число или строки явно, теми же значениями, что вернул тул,
 без округления сверх того, что уже сделал SQL."""
-"""Часть промпта про SQL, общая у конфигурации C и роутера: у обоих есть execute_sql и
-скилл, и расхождение между двумя копиями этих правил меряло бы разницу промптов, а не
-разницу конфигураций."""
+"""Правила про SQL, одна копия на промпты конфигурации C и роутера."""
 
 SQL_SYSTEM_PROMPT = f"""Ты отвечаешь на вопросы о товарах Wildberries и Ozon, переводя их
 в SQL к снапшоту базы и вызывая тул execute_sql.
@@ -288,19 +284,13 @@ def build_options(
     allowed_tools: list[str] | None = None,
     skills: list[str] | None = None,
 ) -> ClaudeAgentOptions:
-    """Опции агента. `tools`, `allowed_tools` и `permission_mode` — см. докстринг модуля.
+    """Опции агента; запрет встроенных тулов описан в докстринге модуля.
 
-    По умолчанию — конфигурация тула A: сюиты этапов 2 и 3 зовут `build_options()` без
-    аргументов. Конфигурации C и роутера передают свой промпт, свой список тулов и свой
-    скилл.
+    Без аргументов — конфигурация тула A. Конфигурации C и роутера передают свой промпт,
+    тулы и скилл; со скиллом в `tools` добавляется `Skill`, сам скилл приходит из `plugins`.
 
-    Скиллы приезжают из `plugins`, а не из `setting_sources`: второй путь притащил бы
-    `CLAUDE.md` репозитория. Вместе со скиллом в `tools` кладётся `Skill` — без него
-    скилл виден в сессии, но вызвать его нечем.
-
-    `display="summarized"` возвращает текст промежуточных рассуждений: по умолчанию у
-    Opus 4.7+ он `omitted`, то есть блок приходит с подписью и пустым содержимым.
-    Рассуждение оплачивается в обоих режимах, разница только в видимости.
+    `display="summarized"` включает текст рассуждений: по умолчанию у Opus 4.7+ блок
+    приходит с подписью и пустым текстом.
     """
     return ClaudeAgentOptions(
         thinking={"type": "adaptive", "display": "summarized"},
@@ -354,6 +344,13 @@ class Answer:
     terminal_reason: str | None = None
     num_turns: int = 0
     cost_usd: float = 0.0
+    """Оценка SDK по прайсу вшитой CLI, вместе с вложенными вызовами."""
+    nested_cost_usd: float = 0.0
+    duration_ms: int = 0
+    usage: dict[str, Any] = field(default_factory=dict)
+    """Токены внешнего цикла с разбивкой по кэшу, без вложенных вызовов."""
+    model_usage: dict[str, Any] = field(default_factory=dict)
+    """Токены и стоимость по моделям вместе с вложенными вызовами, включая служебный haiku, которого зовёт сам CLI."""
     limit_hit: str | None = None
     error: str | None = None
 
@@ -366,11 +363,7 @@ LIMIT_SUBTYPES = {"error_max_turns": "max_turns", "error_max_budget_usd": "max_b
 
 
 def _result_text(block: ToolResultBlock) -> str:
-    """Текст из результата тула.
-
-    MCP отдаёт content списком блоков, и наивный `str()` превратил бы переносы строк
-    в литералы `\\n` — выдача перестала бы разбираться построчно.
-    """
+    """Текст из результата тула. MCP отдаёт content списком блоков; `str()` на нём ломает переносы строк."""
     if isinstance(block.content, str):
         return block.content
     if isinstance(block.content, list):
@@ -381,9 +374,8 @@ def _result_text(block: ToolResultBlock) -> str:
 def collect(messages: list[Any], result: ResultMessage | None, error: Exception | None) -> Answer:
     """Сообщения прогона → плоский ответ.
 
-    Текст собирается из всех блоков ассистента, а не только из `result.result`: при
-    обрыве по лимиту `result` приходит пустым. Выдача тула и рассуждения забираются
-    отдельно — харнессу нужно знать, что агент видел, а не только что он сказал.
+    Текст собирается из блоков ассистента: при обрыве по лимиту `result.result` пуст. Выдача
+    тулов и рассуждения сохраняются отдельно от текста.
     """
     answer = Answer()
     for message in messages:
@@ -407,6 +399,9 @@ def collect(messages: list[Any], result: ResultMessage | None, error: Exception 
         answer.terminal_reason = result.terminal_reason
         answer.num_turns = result.num_turns
         answer.cost_usd = result.total_cost_usd or 0.0
+        answer.duration_ms = result.duration_ms
+        answer.usage = result.usage or {}
+        answer.model_usage = dict(result.model_usage or {})
         answer.limit_hit = LIMIT_SUBTYPES.get(result.subtype)
         if result.is_error:
             answer.error = "; ".join(result.errors or []) or result.subtype
@@ -416,40 +411,52 @@ def collect(messages: list[Any], result: ResultMessage | None, error: Exception 
     return answer
 
 
-def instrument_langfuse() -> bool:
-    """Включить трейсинг агента, если ключи Langfuse заданы. Повторный вызов бесплатен.
+def merge_model_usage(outer: dict[str, Any], inner: dict[str, Any]) -> dict[str, Any]:
+    """Сложить разбивки по моделям: числовые поля суммируются, остальные берутся из первой."""
+    merged = {model: dict(usage) for model, usage in outer.items()}
+    for model, usage in inner.items():
+        target = merged.setdefault(model, {})
+        for key, value in usage.items():
+            if isinstance(value, int | float) and not isinstance(value, bool):
+                target[key] = target.get(key, 0) + value
+            else:
+                target.setdefault(key, value)
+    return merged
 
-    Недоступность облака не поднимает исключение, а печатает причину и возвращает
-    `False`: платный прогон от неё не должен сниматься, но и молчать нельзя — случай 1
-    в `docs/failures.md`.
 
-    Инструментор OpenInference, а не `@observe`: агент гоняет CLI дочерним процессом,
-    и декоратор на наших функциях показал бы только их, оставив внутренний цикл SDK
-    чёрным ящиком.
+def instrument_langfuse() -> str:
+    """Включить трейсинг агента и вернуть состояние: «включён», «нет ключей» или «недоступен».
+
+    Повторный вызов бесплатен. Ключи проверяются до `auth_check`: без ключей он возвращает `False`, а сетевую
+    ошибку и отвергнутые ключи бросает. Недоступность облака печатается и прогон не останавливает.
+
+    Трейсинг — инструментором OpenInference, а не `@observe`: SDK гоняет CLI дочерним процессом, и декоратор на
+    наших функциях внутренний цикл не покрыл бы.
     """
     from langfuse import get_client
     from openinference.instrumentation.claude_agent_sdk import ClaudeAgentSDKInstrumentor
 
     global _langfuse
+    if not (os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY")):
+        return "нет ключей"
     try:
         client = get_client()
-        if not client.auth_check():
-            return False
+        client.auth_check()
     except Exception as exc:  # noqa: BLE001 — Langfuse в облаке, сеть отваливается
         print(f"Langfuse недоступен, прогон идёт без трейсов: {type(exc).__name__}: {exc}")
-        return False
+        return "недоступен"
     instrumentor = ClaudeAgentSDKInstrumentor()
     if not instrumentor.is_instrumented_by_opentelemetry:
         instrumentor.instrument()
     _langfuse = client
-    return True
+    return "включён"
 
 
 def _log_thinking(text: str) -> None:
     """Резюме рассуждения — спаном внутри активного спана прогона.
 
-    Зовётся по ходу разбора сообщений: контекст инструментора ещё активен, поэтому
-    спан становится ребёнком `ClaudeAgentSDK.query`, а не отдельным трейсом.
+    Зовётся по ходу потока сообщений, пока активен контекст инструментора: вне его спан
+    ушёл бы отдельным трейсом.
     """
     if _langfuse is None:
         return
@@ -457,7 +464,7 @@ def _log_thinking(text: str) -> None:
 
 
 def flush_langfuse() -> None:
-    """Дослать спаны перед выходом: экспорт батчами, и короткий скрипт успел бы завершиться раньше."""
+    """Дослать спаны перед выходом: экспорт идёт батчами."""
     from langfuse import get_client
 
     get_client().flush()
@@ -466,13 +473,19 @@ def flush_langfuse() -> None:
 async def ask(question: str, options: ClaudeAgentOptions | None = None) -> Answer:
     """Задать вопрос агенту и дождаться ответа.
 
-    Исчерпание лимита SDK сообщает дважды — результатом и исключением, — поэтому
-    исключение здесь не ошибка вызова, а один из штатных исходов.
+    Исключение из `query()` не пробрасывается, а уходит в `Answer`: при исчерпании лимита
+    SDK отдаёт и результат, и исключение.
+
+    Вложенные `ask` — вызовы изнутри тулов — добавляют во внешний ответ свою стоимость
+    (`cost_usd`, `nested_cost_usd`) и `model_usage`.
     """
     options = options or build_options()
     messages: list[Any] = []
     result: ResultMessage | None = None
     error: Exception | None = None
+    parent = _nested_answers.get()
+    nested: list[Answer] = []
+    token = _nested_answers.set(nested)
     try:
         async for message in _sdk_query.query(prompt=question, options=options):
             messages.append(message)
@@ -484,9 +497,18 @@ async def ask(question: str, options: ClaudeAgentOptions | None = None) -> Answe
                 result = message
     except Exception as exc:  # noqa: BLE001 — обрыв по лимиту прилетает исключением
         error = exc
-    return collect(messages, result, error)
+    finally:
+        _nested_answers.reset(token)
+    answer = collect(messages, result, error)
+    answer.nested_cost_usd = sum(inner.cost_usd for inner in nested)
+    answer.cost_usd += answer.nested_cost_usd
+    for inner in nested:
+        answer.model_usage = merge_model_usage(answer.model_usage, inner.model_usage)
+    if parent is not None:
+        parent.append(answer)
+    return answer
 
 
 def ask_sync(question: str, options: ClaudeAgentOptions | None = None) -> Answer:
-    """Синхронный вход для скриптов: у харнесса своего цикла событий нет."""
+    """Синхронная обёртка над `ask` для скриптов."""
     return asyncio.run(ask(question, options))

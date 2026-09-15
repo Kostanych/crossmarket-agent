@@ -1,13 +1,9 @@
 """Сюита роутинга: вопрос → агент со всеми тулами → какой тул он выбрал.
 
-Метрика считается по вызовам тулов, а не по тексту ответа: качество самих ответов
-меряют сюиты A, B и C, здесь предмет замера — выбор.
+Метрика считается по вызовам тулов, текст ответа не оценивается. Вызовы `Skill` из
+последовательности убираются; звался ли скилл — диагностика `skill_used`.
 
-Вызовы скилла из последовательности вычищаются: `Skill` — служебный тул, к развилке
-между тулами отношения не имеющий. Что скилл вообще звался, остаётся диагностикой `skill_used`.
-
-Мультихоповые кейсы в accuracy не входят: правильных вызовов там несколько, и порядок
-между ними вопросом задан не всегда. Они печатаются целиком и читаются глазами.
+Мультихоповые кейсы в accuracy не входят и печатаются целиком.
 """
 
 from __future__ import annotations
@@ -35,8 +31,7 @@ from evals.report import Table, print_tables, write_report
 RUNS_DIR = Path("evals/runs")
 
 FULL_NAMES = {tool.rsplit("__", 1)[-1]: tool for tool in (SEARCH_TOOL, SQL_TOOL, MATCH_TOOL)}
-"""Короткое имя лейбла → полное имя MCP-тула. Нужно на перегрейде: в дампе лежат
-короткие имена, а `Answer` собирается с полными."""
+"""Короткое имя тула → полное имя MCP-тула; для перегрейда, где в дампе лежат короткие имена."""
 
 SKILL_TOOL = "Skill"
 
@@ -67,12 +62,7 @@ class RoutingGrade:
 
 
 def grade(case: RoutingCase, answer: Answer) -> RoutingGrade:
-    """Оценить выбор тула.
-
-    `routed` решается первым вызовом: он и есть решение о маршруте. Дальнейшие вызовы
-    ловятся отдельно — агент, сходивший в оба тула, ответил, возможно, и верно, но
-    выбора не сделал.
-    """
+    """Оценить выбор тула: `routed` — по первому вызову, вызовы после него считаются отдельно."""
     sequence = tool_sequence(answer)
     result = RoutingGrade(
         sequence=sequence,
@@ -200,11 +190,7 @@ def strata_table(rows: list[dict[str, Any]]) -> Table:
 
 
 def multihop_table(rows: list[dict[str, Any]]) -> Table | None:
-    """Цепочки целиком: какие тулы и в каком порядке, и что вышло в ответе.
-
-    Метрики здесь нет намеренно — это качественная проверка, что цепочка вообще
-    складывается. Только в stdout: в ответах названия и цены настоящих карточек.
-    """
+    """Цепочки целиком: тулы по порядку и ответ. Без метрики, только в stdout: в ответах данные карточек."""
     table = Table("Мультихоповые кейсы (вне метрики)", ["кейс", "тулы", "ходов", "ответ"])
     for row in rows:
         if row["case"].single_hop:
@@ -221,8 +207,7 @@ def multihop_table(rows: list[dict[str, Any]]) -> Table | None:
 
 
 def misses_table(rows: list[dict[str, Any]]) -> Table | None:
-    """Кейсы, где маршрут выбран не тот. Вопрос рядом с решением — чтобы было видно,
-    спорная это формулировка или промах агента."""
+    """Кейсы, где первый тул не тот, вместе с вопросом."""
     table = Table("Промахи роутинга", ["кейс", "страта", "ожидался", "звал", "вопрос"])
     for row in rows:
         case, result = row["case"], row["grade"]
@@ -248,6 +233,10 @@ def dump_run(rows: list[dict[str, Any]], name: str, limits: str = "") -> Path:
                         "skill_used": result.skill_used,
                         "num_turns": answer.num_turns,
                         "cost_usd": answer.cost_usd,
+                        "nested_cost_usd": answer.nested_cost_usd,
+                        "duration_ms": answer.duration_ms,
+                        "usage": answer.usage,
+                        "model_usage": answer.model_usage,
                         "subtype": answer.subtype,
                         "limits": limits,
                     },
@@ -259,7 +248,7 @@ def dump_run(rows: list[dict[str, Any]], name: str, limits: str = "") -> Path:
 
 
 def _limits_of(name: str) -> str:
-    """Лимиты того прогона, а не сегодняшние: перегрейд не должен выдавать дефолт за факт."""
+    """Лимиты из дампа прогона, а не текущие из конфига."""
     first = json.loads((RUNS_DIR / f"{name}.jsonl").read_text(encoding="utf-8").splitlines()[0])
     return first.get("limits") or "не записаны в дампе"
 

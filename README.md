@@ -34,11 +34,15 @@ price analytics — plus an eval harness and observability around all of it.
   with ground truth comes from the held-out part, and it is always shown next to the
   baseline of a judge that gives the same answer to everything and a free
   deterministic check.
+- **Observability** — FastAPI with `/chat`, `/health` and `/metrics`, Prometheus and
+  Grafana with a dashboard and alerts, agent traces in Langfuse. Request cost includes
+  the nested calls to the confirmation model and has been reconciled against the
+  Console bill.
 
 ## Stack
 
 Claude Agent SDK (orchestrator), Qdrant, ClickHouse, MLflow, Langfuse,
-sentence-transformers, FastAPI (later), Grafana + Prometheus (later).
+sentence-transformers, FastAPI, Prometheus + Grafana.
 
 ## Stages
 
@@ -49,7 +53,7 @@ sentence-transformers, FastAPI (later), Grafana + Prometheus (later).
 - [x] A + C routing
 - [x] Tool B: Wildberries ↔ Ozon matching
 - [x] Judges and calibration on held-out test sets
-- [ ] Observability and cost
+- [x] Observability and cost
 - [ ] README and showcase artifacts
 
 ## Numbers
@@ -124,6 +128,43 @@ Bottom line: direct metrics come first. Where ground truth exists, the judge is
 checked against it — C fails the check, B works on half of the errors, and the answer
 judge ties with the keyword check (0.925 each on all 40 labeled). Details —
 [docs/findings.md](docs/findings.md) (in Russian), reports — `evals/reports/judge_*.md`.
+
+### Cost
+
+Costs in the reports are the Claude Agent SDK's estimate from the price table bundled
+with its CLI, not the bill. The estimate was reconciled against the Console bill on 20
+routing questions run through an API key:
+
+| model | role | SDK estimate | Console bill |
+|---|---|---|---|
+| opus-5 | router | $0.68 | $0.68 |
+| sonnet-5 | B confirmation model | ~$0.34 | $0.23 |
+| haiku-4.5 | CLI helper calls | ~$0.06 | $0.06 |
+| | total | $1.08 | $0.97 |
+
+The SDK counts tokens exactly: for opus the count matches Console to the token. The
+sonnet gap is a stale price table: CLI 2.1.233, bundled with the previous SDK version,
+priced sonnet-5 at $3/$15 instead of $2/$10. The SDK has been upgraded, and CLI 2.1.259 uses the correct prices; matching and
+judge costs measured before that are overstated by half on their sonnet share.
+
+The authentication mode shifts the estimate by itself: the same questions under a
+subscription come out 30% higher with the same tokens. A subscription writes the cache
+for an hour, an API key for 5 minutes, and the one-hour write costs more. All of the
+project's measurements were taken under a subscription.
+
+The B confirmation model runs as separate SDK calls from inside the tool, so they don't
+land in the router request's cost on their own, and in this run they made up almost a
+third of the bill. Their cost and tokens are added to the outer answer explicitly.
+Latency on the same 20 questions: p50 10.9 s, p95 21.1 s.
+
+### Observability
+
+`make observe` brings up Prometheus and Grafana, `make serve` starts FastAPI with
+`/chat`, `/health` and `/metrics`. The dashboard shows requests by outcome, p50/p95
+latency, cost, tool calls and cache share, next to the Qdrant and ClickHouse metrics the
+databases expose themselves. Four alerts: a database is down, hourly spend, the share
+of errors and limit cut-offs, p95 latency. Agent traces go to Langfuse; calls to the
+confirmation model land in the same trace as the router request.
 
 Short conclusions for every measurement — [docs/findings.md](docs/findings.md), the
 failure log — [docs/failures.md](docs/failures.md), run reports —

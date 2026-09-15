@@ -1,10 +1,7 @@
-"""End-to-end прогон golden-set через агента: что дошло до итогового ответа.
+"""End-to-end прогон golden-set через агента, метрики по итоговому ответу.
 
-Запрос к тулу формулирует оркестратор и зовёт его по нескольку раз, поэтому цифры
-несравнимы с `evals/retrieval.py` — общий у сюит только golden-set.
-
-`shown_recall` (по выдаче тула) остаётся диагностикой: в паре с `cited_recall` видно,
-где потерялась карточка — в поиске или в ответе.
+`cited_recall` считается по карточкам, названным в ответе, `shown_recall` — по выдаче тула;
+по паре видно, где потерялась карточка — в поиске или в ответе.
 """
 
 from __future__ import annotations
@@ -167,11 +164,7 @@ def strata_table(rows: list[dict[str, Any]]) -> Table:
 
 
 def absent_answers_table(rows: list[dict[str, Any]]) -> Table | None:
-    """Ответы на отрицательные кейсы целиком.
-
-    Проверка отказа по словам теряет перефразировки, и до судьи-QA единственная
-    защита — прочитать ответы глазами, поэтому они лежат в отчёте.
-    """
+    """Ответы на отрицательные кейсы целиком: проверка отказа идёт по словам, ответы читаются глазами."""
     table = Table("Ответы на отрицательные кейсы", ["кейс", "тип", "отказ", "ответ"])
     for row in rows:
         if row["case"].expected != "absent":
@@ -183,8 +176,7 @@ def absent_answers_table(rows: list[dict[str, Any]]) -> Table | None:
 
 
 def violations_table(rows: list[dict[str, Any]]) -> Table | None:
-    """Что в ответе не подтвердилось выдачей тула. С самим числом-нарушителем:
-    проверка цен эвристическая, ложное срабатывание должно быть видно."""
+    """Что в ответе не подтвердилось выдачей тула, вместе с числом-нарушителем."""
     table = Table("Не подтверждено выдачей тула", ["кейс", "id не из выдачи", "цены не из выдачи", "ответ"])
     for row in rows:
         result: Grade = row["grade"]
@@ -219,6 +211,9 @@ def dump_run(rows: list[dict[str, Any]], name: str = "qa_wb", limits: str = "") 
                         "queries": [call["input"].get("question") for call in answer.tool_calls],
                         "num_turns": answer.num_turns,
                         "cost_usd": answer.cost_usd,
+                        "duration_ms": answer.duration_ms,
+                        "usage": answer.usage,
+                        "model_usage": answer.model_usage,
                         "subtype": answer.subtype,
                         "limits": limits,
                     },
@@ -230,17 +225,13 @@ def dump_run(rows: list[dict[str, Any]], name: str = "qa_wb", limits: str = "") 
 
 
 def _limits_of(name: str) -> str:
-    """Лимиты того прогона, а не сегодняшние: перегрейд не должен выдавать дефолт за факт."""
+    """Лимиты из дампа прогона, а не текущие из конфига."""
     first = json.loads((RUNS_DIR / f"{name}.jsonl").read_text(encoding="utf-8").splitlines()[0])
     return first.get("limits") or "не записаны в дампе"
 
 
 def load_run(name: str = "qa_wb") -> list[dict[str, Any]]:
-    """Восстановить прогон с диска и оценить заново.
-
-    Разбор ответа меняется чаще самого прогона; перегрейд бесплатен и оценивает те
-    самые ответы, на которых промах увидели, — новый прогон дал бы другие.
-    """
+    """Восстановить прогон с диска и оценить заново, без LLM."""
     path = RUNS_DIR / f"{name}.jsonl"
     rows = []
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -306,8 +297,7 @@ def regrade(use_mlflow: bool = False, name: str = "qa_wb") -> None:
 def report(rows: list[dict[str, Any]], limits: str, use_mlflow: bool, dump: Path, name: str = "qa_wb") -> None:
     """Таблицы в stdout, markdown-отчёт, метрики в MLflow. Общее для прогона и перегрейда.
 
-    В файл идут только агрегаты: построчные таблицы и ответы содержат названия и цены
-    настоящих карточек, а данных в репозитории нет. Смотреть их — в stdout и в дампе.
+    В файл идут только агрегаты; построчные таблицы и ответы — в stdout и в дампе.
     """
     cases = [row["case"] for row in rows]
     aggregates = [summary_table(rows), strata_table(rows)]

@@ -1,0 +1,11 @@
+<!-- В config.xml образа этот блок закомментирован; порт наружу не пробрасывается,
+     Prometheus ходит внутри сети compose. -->
+<clickhouse>
+    <prometheus>
+        <endpoint>/metrics</endpoint>
+        <port>9363</port>
+        <metrics>true</metrics>
+        <events>true</events>
+        <asynchronous_metrics>true</asynchronous_metrics>
+    </prometheus>
+</clickhouse>

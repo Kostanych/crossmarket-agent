@@ -1,0 +1,151 @@
+{
+  "uid": "crossmarket",
+  "title": "crossmarket-agent",
+  "tags": ["crossmarket"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "/chat requests, last hour",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "sum(increase(chat_requests_total[1h]))"}],
+      "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []}
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Spend, last hour",
+      "description": "Client-side SDK estimate from its bundled price table, including nested calls to the B confirmation model.",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "sum(increase(chat_cost_usd_sum[1h]))"}],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 2}]}
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Average cost per request",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "sum(increase(chat_cost_usd_sum[1h])) / sum(increase(chat_cost_usd_count[1h]))"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 3}, "overrides": []}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Databases",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "up{job=~\"qdrant|clickhouse\"}", "legendFormat": "{{job}}"}],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "down", "color": "red"}, "1": {"text": "up", "color": "green"}}}
+          ],
+          "color": {"mode": "fixed"}
+        },
+        "overrides": []
+      },
+      "options": {"colorMode": "background", "textMode": "value_and_name"}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "/chat requests by outcome, per minute",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "sum by (outcome) (rate(chat_requests_total[5m])) * 60", "legendFormat": "{{outcome}}"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "reqpm"}, "overrides": []}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "/chat latency",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(chat_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(chat_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Tool calls, per minute",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "sum by (tool) (rate(chat_tool_calls_total[5m])) * 60", "legendFormat": "{{tool}}"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Input tokens served from cache",
+      "description": "Outer agent loop only: tokens of the B confirmation model are not included.",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(chat_tokens_total{kind=\"cache_read\"}[5m])) / sum(rate(chat_tokens_total{kind=~\"input|cache_read|cache_write\"}[5m]))",
+          "legendFormat": "cache read"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}, "overrides": []}
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Qdrant: REST latency, p95",
+      "gridPos": {"x": 0, "y": 20, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(rest_responses_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "ClickHouse: queries per second",
+      "gridPos": {"x": 12, "y": 20, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "rate(ClickHouseProfileEvents_SelectQuery[5m])", "legendFormat": "select"},
+        {"refId": "B", "expr": "rate(ClickHouseProfileEvents_FailedQuery[5m])", "legendFormat": "failed"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
+    }
+  ]
+}

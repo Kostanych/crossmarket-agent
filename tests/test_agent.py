@@ -1,8 +1,5 @@
-"""Агент: форма результата тула, разбор исходов прогона и конфигурация-запрет.
-
-Живых вызовов LLM здесь нет — они платные и недетерминированные. Проверяется то,
-что ломается молча: формат, которого ждёт SDK, разбор обрыва по лимиту и опции,
-которыми исполнен запрет live-fetch.
+"""Агент: форма результата тулов, разбор исходов прогона, опции-запрет и учёт вложенных
+вызовов. Живых вызовов LLM нет.
 """
 
 from __future__ import annotations
@@ -44,7 +41,7 @@ def _result(subtype: str, **overrides: Any) -> ResultMessage:
 
 
 def test_tool_returns_shape_sdk_expects(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Расхождение здесь ломает агента без внятной ошибки."""
+    """Тул A отдаёт `content` в формате, которого ждёт SDK."""
     hit = Hit(product=Product(marketplace="wb", id="1", title="Точилка", price_rub=920), score=0.9)
     monkeypatch.setattr(agent, "search_products", lambda *args, **kwargs: [hit])
     monkeypatch.setattr(agent, "_client", lambda name: None)
@@ -77,7 +74,7 @@ def test_limit_outcome_is_named(subtype: str, expected: str | None) -> None:
 
 
 def test_exception_without_result_becomes_error() -> None:
-    """Второй исход исчерпания лимита: SDK бросает после того, как отдал результат."""
+    """Исключение без `ResultMessage` — ошибка вызова, а не обрыв по лимиту."""
     answer = agent.collect([], None, RuntimeError("оборвано"))
 
     assert answer.limit_hit is None
@@ -109,7 +106,7 @@ def test_text_and_calls_survive_the_break() -> None:
 
 
 def test_tool_output_keeps_line_breaks() -> None:
-    """MCP отдаёт content списком блоков; наивный str() съел бы переносы строк."""
+    """Выдача тула, пришедшая списком блоков, сохраняет переносы строк."""
     messages = [
         UserMessage(
             content=[
@@ -128,7 +125,7 @@ def test_tool_output_keeps_line_breaks() -> None:
 
 
 def test_options_forbid_builtin_tools() -> None:
-    """Запрет live-fetch держится этими полями, а не промптом."""
+    """Опции тула A: встроенных тулов нет, вне allowlist ничего не исполняется, лимиты заданы."""
     options = agent.build_options()
 
     assert options.tools == []
@@ -139,7 +136,7 @@ def test_options_forbid_builtin_tools() -> None:
 
 
 def test_thinking_is_collected_when_not_empty() -> None:
-    """С `display="omitted"` блок приходит с подписью и пустым текстом — такой не нужен."""
+    """Пустые блоки рассуждений (`display="omitted"`) отбрасываются."""
     messages = [
         AssistantMessage(
             content=[
@@ -181,11 +178,7 @@ def test_thinking_span_is_optional(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_sql_and_router_configs_take_the_skill_from_a_plugin() -> None:
-    """Скилл приезжает плагином, а не setting-source'ами: те притащили бы `CLAUDE.md`.
-
-    `tools=["Skill"]` — узкое исключение из запрета встроенных тулов: без него скилл
-    виден в сессии, но вызвать его нечем (замер в `tools/spike_sdk.py`, проверка 6).
-    """
+    """Конфигурации C и роутера: скилл из плагина при `setting_sources=[]`, из встроенных тулов — только `Skill`."""
     for options in (agent.sql_options(), agent.router_options()):
         assert options.skills == [agent.SQL_SKILL]
         assert options.plugins == [{"type": "local", "path": str(agent.PLUGIN_DIR)}]
@@ -195,7 +188,7 @@ def test_sql_and_router_configs_take_the_skill_from_a_plugin() -> None:
 
 
 def test_match_tool_returns_shape_sdk_expects(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Тул B отдаёт тот же формат, что и остальные: расхождение ломает агента молча."""
+    """Тул B отдаёт `content` в формате, которого ждёт SDK."""
 
     async def fake_match(wb_id: str, *args: Any, **kwargs: Any) -> Any:
         return MatchResult(
@@ -221,7 +214,7 @@ def test_match_tool_returns_shape_sdk_expects(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_plugin_declares_the_skill_it_promises() -> None:
-    """Имя скилла собрано из манифеста: разъедься они, скилл молча выпал бы из allowlist."""
+    """Имя плагина в `SQL_SKILL` совпадает с манифестом, файл скилла на месте."""
     manifest = json.loads((agent.PLUGIN_DIR / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
     plugin_name, _, skill_name = agent.SQL_SKILL.partition(":")
 
@@ -236,7 +229,58 @@ def test_router_sees_all_tools() -> None:
 
 
 def test_sql_rules_are_shared_by_both_configs_that_write_sql() -> None:
-    """Одни правила на C и роутер: разойдись копии, сюиты мерили бы разницу промптов."""
+    """`SQL_RULES` входит в промпты C и роутера."""
     assert agent.SQL_RULES in agent.SQL_SYSTEM_PROMPT
     assert agent.SQL_RULES in agent.ROUTER_SYSTEM_PROMPT
     assert agent.SQL_SKILL in agent.SQL_RULES
+
+
+def test_nested_calls_add_to_outer_cost(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Стоимость и `model_usage` вложенных `ask` складываются во внешний ответ. Вложенные
+    вызовы запускаются через `create_task`, как обработчик тула в SDK.
+    """
+
+    async def fake_query(prompt: str, options: Any) -> Any:
+        if prompt == "роутер":
+            loop = asyncio.get_running_loop()
+            await asyncio.gather(*(loop.create_task(agent.ask("пара", options)) for _ in range(2)))
+            usage = {"claude-opus-5": {"costUSD": 0.05, "inputTokens": 100}}
+            yield _result("success", total_cost_usd=0.05, model_usage=usage)
+        else:
+            usage = {"claude-sonnet-5": {"costUSD": 0.01, "inputTokens": 10}, "claude-haiku-4-5": {"inputTokens": 1}}
+            yield _result("success", total_cost_usd=0.01, model_usage=usage)
+
+    monkeypatch.setattr(agent._sdk_query, "query", fake_query)
+    answer = asyncio.run(agent.ask("роутер", options=object()))
+
+    assert answer.nested_cost_usd == pytest.approx(0.02)
+    assert answer.cost_usd == pytest.approx(0.07)
+    assert answer.model_usage["claude-opus-5"]["inputTokens"] == 100
+    assert answer.model_usage["claude-sonnet-5"] == {"costUSD": pytest.approx(0.02), "inputTokens": 20}
+    assert answer.model_usage["claude-haiku-4-5"] == {"inputTokens": 2}
+
+
+def test_duration_and_tokens_are_kept() -> None:
+    usage = {"input_tokens": 10, "cache_read_input_tokens": 900}
+    model_usage = {"claude-opus-5": {"costUSD": 0.02}}
+    answer = agent.collect([], _result("success", duration_ms=4200, usage=usage, model_usage=model_usage), None)
+
+    assert answer.duration_ms == 4200
+    assert answer.usage == usage
+    assert answer.model_usage == model_usage
+
+
+def test_langfuse_state_tells_missing_keys_from_outage(monkeypatch: pytest.MonkeyPatch) -> None:
+    """«Нет ключей» и «недоступен» — разные исходы."""
+    monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
+    monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
+    assert agent.instrument_langfuse() == "нет ключей"
+
+    class Offline:
+        def auth_check(self) -> bool:
+            raise ConnectionError("timeout")
+
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk")
+    monkeypatch.setattr("langfuse.get_client", lambda: Offline())
+    assert agent.instrument_langfuse() == "недоступен"

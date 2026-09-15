@@ -1,12 +1,17 @@
-# Тонкая обёртка над `python -m evals`: плану нужен `make eval` как одна команда,
-# из прогона которой снимается gif для витрины.
+# Цели поверх `python -m evals`, docker compose и uvicorn.
 
 POETRY ?= poetry run
 
-.PHONY: up eval eval-retrieval eval-qa eval-sql eval-routing eval-matching judges check test lint
+.PHONY: up observe serve eval eval-retrieval eval-qa eval-sql eval-routing eval-matching judges check test lint
 
 up:                       ## Qdrant и ClickHouse
 	docker compose --profile infra up -d
+
+observe:                  ## + Prometheus (:9090) и Grafana (:3000)
+	docker compose --profile infra --profile observability up -d
+
+serve:                    ## /chat, /health, /metrics на :8000; один воркер — метрики в памяти процесса
+	$(POETRY) uvicorn crossmarket.api:app --host 0.0.0.0 --port 8000
 
 check:                    ## валидация golden-set, без LLM и без денег
 	$(POETRY) python -m evals check
