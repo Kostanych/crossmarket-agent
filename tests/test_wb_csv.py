@@ -119,5 +119,5 @@ def test_only_first_row_is_used() -> None:
 
 
 def test_empty_csv_is_rejected() -> None:
-    with pytest.raises(ValueError, match="CSV пуст"):
+    with pytest.raises(ValueError, match="CSV is empty"):
         extract_wb_csv("title,price,cats,charasteristics,desc,reviews,id\n")

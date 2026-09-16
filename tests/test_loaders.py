@@ -64,7 +64,7 @@ def test_row_follows_column_order() -> None:
 
 
 def test_card_without_price_is_refused() -> None:
-    with pytest.raises(ValueError, match="нет цены"):
+    with pytest.raises(ValueError, match="no price"):
         clickhouse.to_row(_product(price_rub=None))
 
 

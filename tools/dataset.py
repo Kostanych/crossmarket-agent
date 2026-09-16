@@ -79,7 +79,7 @@ def load_seed(path: Path) -> list[dict[str, str]]:
         except UnicodeDecodeError:
             continue
     else:
-        raise ValueError(f"{path.name}: не подошла ни одна кодировка из utf-8, cp1251.")
+        raise ValueError(f"{path.name}: none of the encodings utf-8, cp1251 fit.")
 
     reader = csv.DictReader(text.splitlines(), delimiter=";")
     rows = []
@@ -122,7 +122,7 @@ def split_by_coverage(labels: list[Label], dumps: dict[str, Dumps]) -> dict[str,
 
 
 def report_fields(dumps: dict[str, Dumps]) -> None:
-    print("\n== Полнота полей ==")
+    print("\n== Field completeness ==")
     for marketplace, side in dumps.items():
         total = len(side.products)
         holes = Counter()
@@ -130,14 +130,14 @@ def report_fields(dumps: dict[str, Dumps]) -> None:
             for name in REQUIRED_FIELDS:
                 if not getattr(product, name):
                     holes[name] += 1
-        print(f"\n{marketplace}: карточек {total}")
+        print(f"\n{marketplace}: listings {total}")
         if not holes:
-            print("  все поля на месте")
+            print("  all fields present")
         for name in REQUIRED_FIELDS:
             missing = holes[name]
             if missing:
-                mark = "ВСЕ" if missing == total else f"{missing}/{total}"
-                print(f"  нет {name:12} {mark}")
+                mark = "ALL" if missing == total else f"{missing}/{total}"
+                print(f"  missing {name:12} {mark}")
 
 
 def report_values(dumps: dict[str, Dumps]) -> None:
@@ -147,51 +147,51 @@ def report_values(dumps: dict[str, Dumps]) -> None:
     на соседний блок, поле остаётся непустым и выглядит здоровым. Так у ВБ в
     категорию попало «Артикул / 1128813622». Поэтому — глазами на значения.
     """
-    print("\n== Как разобралось ==")
+    print("\n== How it parsed ==")
     for marketplace, side in dumps.items():
         if not side.products:
             continue
         categories = Counter(p.category for p in side.products.values() if p.category)
-        print(f"\n{marketplace}: категорий {len(categories)} на {len(side.products)} карточек")
+        print(f"\n{marketplace}: {len(categories)} categories over {len(side.products)} listings")
         for value, count in categories.most_common(5):
             print(f"  {count:3}  {value!r}")
 
         example = next(iter(side.products.values()))
-        print(f"  пример карточки {example.id}:")
+        print(f"  sample listing {example.id}:")
         for name in ("title", "price_rub", "category"):
             print(f"    {name:10} {getattr(example, name)!r}")
         first_attr = next(iter(example.attributes.items()), None)
-        print(f"    {'attributes':10} {len(example.attributes)} шт, первая {first_attr!r}")
+        print(f"    {'attributes':10} {len(example.attributes)} items, first {first_attr!r}")
 
 
 def report_dumps(dumps: dict[str, Dumps]) -> None:
-    print("\n== Выгрузки ==")
+    print("\n== Dumps ==")
     for marketplace, side in dumps.items():
-        print(f"{marketplace}: файлов {len(side.files)}, карточек {len(side.products)}")
+        print(f"{marketplace}: files {len(side.files)}, listings {len(side.products)}")
         if side.without_price:
-            print(f"  выбраковано без цены: {len(side.without_price)} — {', '.join(side.without_price)}")
+            print(f"  rejected without price: {len(side.without_price)} — {', '.join(side.without_price)}")
         if side.duplicates:
-            print(f"  один товар в нескольких файлах: {', '.join(sorted(set(side.duplicates)))}")
+            print(f"  one product in several files: {', '.join(sorted(set(side.duplicates)))}")
         if side.without_id:
-            print(f"  без идентификатора: {', '.join(side.without_id)}")
+            print(f"  without id: {', '.join(side.without_id)}")
         if side.unreadable:
-            print(f"  не разобрались: {side.unreadable}")
+            print(f"  unreadable: {side.unreadable}")
 
 
 def report_coverage(buckets: dict[str, list[Label]], dumps: dict[str, Dumps], labels: list[Label]) -> None:
     titles = {
-        "both": "обе карточки на диске",
-        "wb_only": "есть только ВБ",
-        "ozon_only": "есть только Озон",
-        "neither": "нет ни одной",
+        "both": "both listings on disk",
+        "wb_only": "WB only",
+        "ozon_only": "Ozon only",
+        "neither": "neither",
     }
-    print(f"\n== Покрытие разметки ({len(labels)} пар) ==")
+    print(f"\n== Label coverage ({len(labels)} pairs) ==")
     for name, title in titles.items():
         items = buckets[name]
         matches = sum(1 for label in items if label.label == "match")
-        print(f"  {title:22} {len(items):3}  матчей {matches}, не-матчей {len(items) - matches}")
+        print(f"  {title:22} {len(items):3}  matches {matches}, non-matches {len(items) - matches}")
 
-    print("\n== Скрапнуто мимо разметки ==")
+    print("\n== Scraped outside the labels ==")
     for marketplace, side in dumps.items():
         field = "wb_id" if marketplace == "wb" else "ozon_id"
         known = {getattr(label, field) for label in labels}
@@ -210,20 +210,20 @@ def write_dataset(dumps: dict[str, Dumps], complete: list[Label], data_dir: Path
             append_product(product, data_dir)
     for label in complete:
         append_label(label, data_dir)
-    print(f"\nЗаписано: карточек {sum(len(s.products) for s in dumps.values())}, меток {len(complete)}")
+    print(f"\nWritten: listings {sum(len(s.products) for s in dumps.values())}, labels {len(complete)}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
-    parser.add_argument("--write", action="store_true", help="записать products.jsonl и labels.jsonl")
+    parser.add_argument("--write", action="store_true", help="write products.jsonl and labels.jsonl")
     args = parser.parse_args()
 
     dumps = {marketplace: Dumps(marketplace, args.data_dir) for marketplace in MARKETPLACES}
     seed_files = sorted(args.data_dir.glob(SEED_GLOB))
     if not seed_files:
-        raise SystemExit(f"нет ни одного файла {SEED_GLOB} в {args.data_dir}")
-    print("Сид-разметка: " + ", ".join(path.name for path in seed_files))
+        raise SystemExit(f"no {SEED_GLOB} files in {args.data_dir}")
+    print("Seed labels: " + ", ".join(path.name for path in seed_files))
     labels = [seed_to_label(row) for path in seed_files for row in load_seed(path)]
     buckets = split_by_coverage(labels, dumps)
 
@@ -235,7 +235,7 @@ def main() -> None:
     if args.write:
         write_dataset(dumps, buckets["both"], args.data_dir)
     else:
-        print(f"\nК записи готовы {len(buckets['both'])} пар. Запись: --write")
+        print(f"\nReady to write {len(buckets['both'])} pairs. Write with --write")
 
 
 if __name__ == "__main__":

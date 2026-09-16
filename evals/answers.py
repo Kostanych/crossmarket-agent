@@ -181,12 +181,12 @@ def validate(answers: list[AnswerCase]) -> list[str]:
     seen: set[str] = set()
     for case in answers:
         if case.id in seen:
-            problems.append(f"{case.id}: идентификатор повторяется")
+            problems.append(f"{case.id}: duplicate id")
         seen.add(case.id)
         if case.verdict not in VERDICTS:
-            problems.append(f"{case.id}: вердикт {case.verdict!r}, а нужен один из {VERDICTS}")
+            problems.append(f"{case.id}: verdict {case.verdict!r}, expected one of {VERDICTS}")
         if case.split not in ("calibration", "test"):
-            problems.append(f"{case.id}: сплит не проставлен")
+            problems.append(f"{case.id}: split not assigned")
     return problems
 
 
@@ -197,6 +197,6 @@ def summary(answers: list[AnswerCase]) -> str:
     labelled = sum(1 for case in answers if case.verdict in VERDICTS)
     bad = sum(1 for case in answers if case.verdict == "bad")
     return (
-        f"ответов {len(answers)}: калибровка {sizes.get('calibration', 0)}, тест {sizes.get('test', 0)}; "
-        f"размечено {labelled}, из них плохих {bad}"
+        f"answers {len(answers)}: calibration {sizes.get('calibration', 0)}, test {sizes.get('test', 0)}; "
+        f"labeled {labelled}, bad {bad}"
     )

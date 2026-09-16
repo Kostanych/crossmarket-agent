@@ -271,10 +271,10 @@ def test_duration_and_tokens_are_kept() -> None:
 
 
 def test_langfuse_state_tells_missing_keys_from_outage(monkeypatch: pytest.MonkeyPatch) -> None:
-    """«Нет ключей» и «недоступен» — разные исходы."""
+    """`no keys` и `unavailable` — разные исходы."""
     monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
     monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
-    assert agent.instrument_langfuse() == "нет ключей"
+    assert agent.instrument_langfuse() == "no keys"
 
     class Offline:
         def auth_check(self) -> bool:
@@ -283,4 +283,4 @@ def test_langfuse_state_tells_missing_keys_from_outage(monkeypatch: pytest.Monke
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk")
     monkeypatch.setattr("langfuse.get_client", lambda: Offline())
-    assert agent.instrument_langfuse() == "недоступен"
+    assert agent.instrument_langfuse() == "unavailable"

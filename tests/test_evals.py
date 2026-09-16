@@ -198,10 +198,10 @@ def test_validate_catches_silent_breakage() -> None:
 
     problems = "\n".join(validate(cases))
 
-    assert "повторяется" in problems
-    assert "без relevant_ids" in problems
-    assert "kind должен быть" in problems
-    assert "сплит не проставлен" in problems
+    assert "duplicate id" in problems
+    assert "without relevant_ids" in problems
+    assert "kind must be" in problems
+    assert "split not assigned" in problems
 
 
 def test_agreement_counts_and_lists_disagreements() -> None:
@@ -221,12 +221,12 @@ def test_calibration_number_is_refused_for_the_readme() -> None:
     result = agreement([Verdict("q01", "match")], {"q01": "match"}, positive="match", split="calibration")
 
     assert not result.reportable
-    with pytest.raises(ValueError, match="только test"):
+    with pytest.raises(ValueError, match="only test"):
         result.for_readme()
 
 
 def test_missing_verdict_is_an_error_not_a_skip() -> None:
-    with pytest.raises(ValueError, match="не совпадают"):
+    with pytest.raises(ValueError, match="different cases"):
         agreement([Verdict("q01", "match")], {"q01": "match", "q02": "match"}, positive="match", split="test")
 
 
@@ -261,10 +261,10 @@ def test_sql_validate_catches_silent_breakage() -> None:
             SqlCase(id="c04", question="?", sql="SELECT 1", kind="count"),
         ]
     )
-    assert any("повторяется" in p for p in problems)
-    assert any("нет эталонного SQL" in p for p in problems)
-    assert any("не указана страта" in p for p in problems)
-    assert any("сплит не проставлен" in p for p in problems)
+    assert any("duplicate id" in p for p in problems)
+    assert any("no reference SQL" in p for p in problems)
+    assert any("no stratum" in p for p in problems)
+    assert any("split not assigned" in p for p in problems)
 
 
 def test_pairs_get_the_same_split_rule_as_questions() -> None:
@@ -346,7 +346,7 @@ def test_routing_validate_catches_silent_breakage() -> None:
         ]
     )
 
-    assert any("повторяется" in problem for problem in problems)
-    assert any("r02" in problem and "лейбл" in problem for problem in problems)
-    assert any("r03" in problem and "сплит" in problem for problem in problems)
-    assert any("r04" in problem and "мультихоп" in problem for problem in problems)
+    assert any("duplicate id" in problem for problem in problems)
+    assert any("r02" in problem and "label" in problem for problem in problems)
+    assert any("r03" in problem and "split" in problem for problem in problems)
+    assert any("r04" in problem and "multihop" in problem for problem in problems)

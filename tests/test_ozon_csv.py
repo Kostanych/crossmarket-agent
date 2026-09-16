@@ -131,7 +131,7 @@ def test_multi_row_card_concatenates_description() -> None:
 
 
 def test_empty_csv_is_rejected() -> None:
-    with pytest.raises(ValueError, match="CSV пуст"):
+    with pytest.raises(ValueError, match="CSV is empty"):
         extract_ozon_csv("title,price,cats,characteristics,desc,reviews,id\n")
 
 

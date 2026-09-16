@@ -425,7 +425,7 @@ def merge_model_usage(outer: dict[str, Any], inner: dict[str, Any]) -> dict[str,
 
 
 def instrument_langfuse() -> str:
-    """Включить трейсинг агента и вернуть состояние: «включён», «нет ключей» или «недоступен».
+    """Включить трейсинг агента и вернуть состояние: `enabled`, `no keys` или `unavailable`.
 
     Повторный вызов бесплатен. Ключи проверяются до `auth_check`: без ключей он возвращает `False`, а сетевую
     ошибку и отвергнутые ключи бросает. Недоступность облака печатается и прогон не останавливает.
@@ -438,18 +438,18 @@ def instrument_langfuse() -> str:
 
     global _langfuse
     if not (os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY")):
-        return "нет ключей"
+        return "no keys"
     try:
         client = get_client()
         client.auth_check()
     except Exception as exc:  # noqa: BLE001 — Langfuse в облаке, сеть отваливается
-        print(f"Langfuse недоступен, прогон идёт без трейсов: {type(exc).__name__}: {exc}")
-        return "недоступен"
+        print(f"Langfuse unavailable, running without traces: {type(exc).__name__}: {exc}")
+        return "unavailable"
     instrumentor = ClaudeAgentSDKInstrumentor()
     if not instrumentor.is_instrumented_by_opentelemetry:
         instrumentor.instrument()
     _langfuse = client
-    return "включён"
+    return "enabled"
 
 
 def _log_thinking(text: str) -> None:

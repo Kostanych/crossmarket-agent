@@ -123,11 +123,11 @@ def answer(messages: list[Any]) -> str:
 
 def report(label: str, messages: list[Any], result: ResultMessage | None, error: Exception | None) -> None:
     print(f"\n-- {label}")
-    print(f"   вызовов ping: {len(tool_calls(messages))}, серверных тулов: {server_tool_calls(messages) or '—'}")
+    print(f"   ping calls: {len(tool_calls(messages))}, server tools: {server_tool_calls(messages) or '—'}")
     if error is not None:
-        print(f"   исключение: {type(error).__name__}: {error}")
+        print(f"   exception: {type(error).__name__}: {error}")
     if result is None:
-        print("   ResultMessage не пришёл")
+        print("   no ResultMessage")
         return
     print(
         f"   subtype={result.subtype} terminal_reason={result.terminal_reason} "
@@ -138,31 +138,31 @@ def report(label: str, messages: list[Any], result: ResultMessage | None, error:
 
 
 async def check_max_turns() -> None:
-    print("\n=== 1. Исчерпание max_turns (лимит 2 при пяти нужных вызовах)")
+    print("\n=== 1. max_turns exhausted (limit 2, five calls needed)")
     messages, result, error = await run(COUNT_PROMPT, base_options(max_turns=2))
     report("max_turns=2", messages, result, error)
 
 
 async def check_max_budget() -> None:
-    print("\n=== 2. max_budget_usd под подпиской (кап 0.001 — заведомо мало)")
+    print("\n=== 2. max_budget_usd under a subscription (cap 0.001 — deliberately too low)")
     messages, result, error = await run(COUNT_PROMPT, base_options(max_turns=6, max_budget_usd=0.001))
     report("max_budget_usd=0.001", messages, result, error)
     if result is not None and not result.total_cost_usd:
-        print("   total_cost_usd пуст — под подпиской кап опереться не на что, нужен ANTHROPIC_API_KEY")
+        print("   total_cost_usd is empty — the cap has nothing to go on under a subscription, needs ANTHROPIC_API_KEY")
 
 
 async def check_langfuse() -> None:
-    print("\n=== 3. Трейс в Langfuse: виден ли внутренний цикл SDK")
+    print("\n=== 3. Langfuse trace: is the inner SDK loop visible")
     try:
         from langfuse import get_client
         from openinference.instrumentation.claude_agent_sdk import ClaudeAgentSDKInstrumentor
     except ImportError as exc:
-        print(f"   импорт не удался: {exc}")
+        print(f"   import failed: {exc}")
         return
 
     client = get_client()
     if not client.auth_check():
-        print("   auth_check не прошёл — проверить LANGFUSE_* в .env")
+        print("   auth_check failed — check LANGFUSE_* in .env")
         return
 
     ClaudeAgentSDKInstrumentor().instrument()
@@ -171,9 +171,9 @@ async def check_langfuse() -> None:
         trace_id = client.get_current_trace_id()
         messages, result, error = await run("Вызови tool ping для n=1 и ответь его результатом.", base_options())
     client.flush()
-    report("прогон под инструментором", messages, result, error)
-    print(f"   трейс: {client.get_trace_url(trace_id=trace_id)}")
-    print("   глазами: разложился ли трейс на generations, есть ли токены и стоимость, виден ли вызов тула")
+    report("run under the instrumentor", messages, result, error)
+    print(f"   trace: {client.get_trace_url(trace_id=trace_id)}")
+    print("   by eye: did the trace split into generations, are tokens and cost present, is the tool call visible")
 
 
 SKILL_MD = """---
@@ -201,7 +201,7 @@ async def check_skills() -> None:
     папки и три конфигурации. Третья — попытка взять одно без другого: скилл лежит в
     подпапке, `cwd` указывает на неё, `CLAUDE.md` остаётся уровнем выше.
     """
-    print("\n=== 4. Скиллы и setting_sources (временный проект во временной папке)")
+    print("\n=== 4. Skills and setting_sources (temporary project in a temp dir)")
     root = Path(tempfile.mkdtemp(prefix="spike_skills_"))
     try:
         nested = root / "agent_skills"
@@ -213,8 +213,8 @@ async def check_skills() -> None:
 
         configs = (
             ("setting_sources=[]", [], root),
-            ("setting_sources не задан", None, root),
-            ("cwd в подпапке без CLAUDE.md", ["project"], nested),
+            ("setting_sources unset", None, root),
+            ("cwd in a subdir without CLAUDE.md", ["project"], nested),
         )
         for label, sources, cwd in configs:
             options = base_options(
@@ -229,10 +229,10 @@ async def check_skills() -> None:
             messages, result, error = await run(SKILL_PROMPT, options)
             text = answer(messages)
             print(f"\n-- {label}")
-            print(f"   скилл виден: {'SKILL_OK' in text}, CLAUDE.md утёк: {'CLAUDE_MD_LEAKED' in text}")
-            print(f"   ответ: {text[:200]!r}")
+            print(f"   skill visible: {'SKILL_OK' in text}, CLAUDE.md leaked: {'CLAUDE_MD_LEAKED' in text}")
+            print(f"   answer: {text[:200]!r}")
             if error is not None:
-                print(f"   исключение: {type(error).__name__}: {error}")
+                print(f"   exception: {type(error).__name__}: {error}")
             if result is not None:
                 print(f"   subtype={result.subtype} num_turns={result.num_turns}")
     finally:
@@ -241,10 +241,10 @@ async def check_skills() -> None:
 
 async def check_tool_search() -> None:
     """Tool search откладывает загрузку схем MCP-тулов — на одном туле это лишний ход."""
-    print("\n=== 5. Tool search на одном туле")
+    print("\n=== 5. Tool search with a single tool")
     prompt = "Вызови tool ping для n=7 и ответь его результатом."
     messages, result, error = await run(prompt, base_options(max_turns=4))
-    report("как есть", messages, result, error)
+    report("as is", messages, result, error)
     messages, result, error = await run(prompt, base_options(max_turns=4, env={"ENABLE_TOOL_SEARCH": "false"}))
     report("ENABLE_TOOL_SEARCH=false", messages, result, error)
 
@@ -258,14 +258,14 @@ async def check_plugin_skill() -> None:
     Строка `tools=[]` в таблице объясняет, почему у конфигураций со скиллом
     `tools=["Skill"]`: скилл там найден, но вызвать его нечем.
     """
-    print("\n=== 6. Скилл через плагин: входные токены и видимость")
+    print("\n=== 6. Skill via plugin: input tokens and visibility")
     repo = str(Path(__file__).resolve().parents[1])
     plugin = [{"type": "local", "path": repo}]
     configs = (
-        ("setting_sources=[] (как в агенте)", {"setting_sources": [], "tools": ["Skill"]}),
+        ("setting_sources=[] (as in the agent)", {"setting_sources": [], "tools": ["Skill"]}),
         ("setting_sources=['project']", {"setting_sources": ["project"], "tools": ["Skill"]}),
         ("plugin + setting_sources=[]", {"setting_sources": [], "tools": ["Skill"], "plugins": plugin}),
-        ("plugin, но tools=[]", {"setting_sources": [], "tools": [], "plugins": plugin}),
+        ("plugin, but tools=[]", {"setting_sources": [], "tools": [], "plugins": plugin}),
     )
     for label, overrides in configs:
         options = base_options(
@@ -278,11 +278,11 @@ async def check_plugin_skill() -> None:
             usage.get(key, 0) for key in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
         )
         print(f"\n-- {label}")
-        print(f"   входных токенов: {total}")
-        print(f"   скиллы плагина: {[name for name in init.get('skills', []) if ':' in name]}")
+        print(f"   input tokens: {total}")
+        print(f"   plugin skills: {[name for name in init.get('skills', []) if ':' in name]}")
         print(f"   tools: {init.get('tools')}")
         if error is not None:
-            print(f"   исключение: {type(error).__name__}: {error}")
+            print(f"   exception: {type(error).__name__}: {error}")
 
 
 CHECKS = {
@@ -299,8 +299,8 @@ async def main() -> None:
     selected = sys.argv[1:] or list(CHECKS)
     unknown = [name for name in selected if name not in CHECKS]
     if unknown:
-        raise SystemExit(f"нет таких проверок: {', '.join(unknown)}; есть {', '.join(CHECKS)}")
-    print(f"модель оркестратора: {AGENT_MODEL}")
+        raise SystemExit(f"no such checks: {', '.join(unknown)}; available {', '.join(CHECKS)}")
+    print(f"orchestrator model: {AGENT_MODEL}")
     for name in selected:
         await CHECKS[name]()
 

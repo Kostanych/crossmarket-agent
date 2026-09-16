@@ -67,22 +67,22 @@ def load(path: Path) -> list[dict[str, Any]]:
 
 def run(runs_dir: Path = RUNS_DIR) -> None:
     table = Table(
-        "Стоимость сохранённых прогонов",
-        ["прогон", "записей", "всего $", "$/запись", "доля B", "из кэша", "p50 с", "p95 с"],
+        "Cost of saved runs",
+        ["run", "records", "total $", "$/record", "B share", "from cache", "p50 s", "p95 s"],
     )
     for path in sorted(runs_dir.glob("*.jsonl")):
         table.rows.append(summarize(path.stem, load(path)))
 
     print(table.to_text())
-    print("\nОценка SDK по прайсу вшитой CLI. Прочерк — поля нет в дампе.")
+    print("\nSDK estimate from the bundled CLI price table. A dash means the field is not in the dump.")
     write_report(
         "cost",
-        "Стоимость прогонов",
+        "Run cost",
         intro=(
-            "Стоимость — оценка Claude Agent SDK по прайсу вшитой CLI, не счёт.\n\n"
-            "«доля B» — доля стоимости вложенных вызовов модели подтверждения B.\n\n"
-            "Прочерк — поля нет в дампе: токены и длительность пишутся в дампы с этапа 8."
+            "Cost is the Claude Agent SDK estimate from the bundled CLI price table, not the bill.\n\n"
+            "`B share` is the share of cost from nested calls to the B confirmation model.\n\n"
+            "A dash means the field is not in the dump: tokens and duration are recorded since stage 8."
         ),
-        config={"источник": "evals/runs/*.jsonl", "прогонов": len(table.rows)},
+        config={"source": "evals/runs/*.jsonl", "runs": len(table.rows)},
         tables=[table],
     )

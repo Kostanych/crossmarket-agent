@@ -100,7 +100,7 @@ async def run_pairs(pairs: list[Label], options: Any, run: int, concurrency: int
             verdict = await confirm(cards[("wb", pair.wb_id)], cards[("ozon", pair.ozon_id)], options)
         row = PairRow(pair=pair, verdict=verdict, run=run)
         done += 1
-        print(f"{done:>3}/{len(pairs)} {'+' if row.correct else 'МИМО':<5} {pair.id} истина={pair.label}")
+        print(f"{done:>3}/{len(pairs)} {'+' if row.correct else 'MISS':<5} {pair.id} truth={pair.label}")
         return row
 
     return list(await asyncio.gather(*(one(pair) for pair in pairs)))
@@ -180,10 +180,10 @@ async def run_full(
             )
         row = FullRow(pair=pair, result=result)
         done += 1
-        found = "+" if row.found_top1 else ("~" if row.found_any else "МИМО")
+        found = "+" if row.found_top1 else ("~" if row.found_any else "MISS")
         print(
             f"{done:>3}/{len(pairs)} {found:<5} {pair.id} "
-            f"кандидатов {len(result.candidates)}, подтверждено {len(result.confirmed)}"
+            f"candidates {len(result.candidates)}, confirmed {len(result.confirmed)}"
         )
         return row
 
@@ -197,8 +197,8 @@ def sweep(rows: list[FullRow], thresholds: tuple[float, ...] = SWEEP_THRESHOLDS)
     зависят и пересчёт точен.
     """
     table = Table(
-        "Свип порога кандидатов (по сохранённым вердиктам)",
-        ["порог", "кандидатов на товар", "партнёр дошёл", "found@1", "«аналога нет» верно"],
+        "Candidate threshold sweep (over saved verdicts)",
+        ["threshold", "candidates per product", "partner reached", "found@1", '"no counterpart" correct'],
     )
     for threshold in thresholds:
         kept = [(row, [c for c in row.result.candidates if (c.score or 0.0) >= threshold]) for row in rows]
@@ -231,12 +231,12 @@ def sweep(rows: list[FullRow], thresholds: tuple[float, ...] = SWEEP_THRESHOLDS)
 def matrix_table(rows: list[PairRow]) -> Table:
     counts = confusion(rows)
     return Table(
-        "Матрица ошибок (положительный класс — match)",
-        ["", "модель: match", "модель: no_match", "не разобрано"],
+        "Confusion matrix (positive class — match)",
+        ["", "model: match", "model: no_match", "unparsed"],
         [
-            ["истина: match", counts["tp"], counts["fn"], "—"],
-            ["истина: no_match", counts["fp"], counts["tn"], "—"],
-            ["всего", counts["tp"] + counts["fp"], counts["fn"] + counts["tn"], counts["unparsed"]],
+            ["truth: match", counts["tp"], counts["fn"], "—"],
+            ["truth: no_match", counts["fp"], counts["tn"], "—"],
+            ["total", counts["tp"] + counts["fp"], counts["fn"] + counts["tn"], counts["unparsed"]],
         ],
     )
 
@@ -244,8 +244,8 @@ def matrix_table(rows: list[PairRow]) -> Table:
 def pair_summary_table(rows: list[PairRow], model: str) -> Table:
     """Метрики по каждому прогону плюс строки среднего и разброса."""
     table = Table(
-        f"Вырожденный режим, модель подтверждения {model}",
-        ["прогон", "пар", "precision", "recall", "F1", "accuracy", "верных негативов", "$"],
+        f"Pair mode, confirmation model {model}",
+        ["run", "pairs", "precision", "recall", "F1", "accuracy", "negatives correct", "$"],
     )
     runs = sorted({row.run for row in rows})
     per_run = []
@@ -268,12 +268,12 @@ def pair_summary_table(rows: list[PairRow], model: str) -> Table:
     if len(runs) > 1:
         names = ("precision", "recall", "f1", "accuracy", "negatives_correct")
         table.rows.append(
-            ["среднее", len(rows) // len(runs)]
+            ["mean", len(rows) // len(runs)]
             + [_mean([m[name] for m in per_run]) for name in names]
             + [f"{sum(m['total_cost_usd'] for m in per_run):.2f}"]
         )
         table.rows.append(
-            ["разброс", "—"]
+            ["range", "—"]
             + [f"{min(m[name] for m in per_run):.3f}–{max(m[name] for m in per_run):.3f}" for name in names]
             + ["—"]
         )
@@ -283,8 +283,8 @@ def pair_summary_table(rows: list[PairRow], model: str) -> Table:
 def misses_table(rows: list[PairRow]) -> Table | None:
     """Расхождения с разметкой. Только в stdout — в обосновании данные карточек."""
     table = Table(
-        "Расхождения с разметкой",
-        ["пара", "прогон", "истина", "модель", "обоснование модели"],
+        "Disagreements with labels",
+        ["pair", "run", "truth", "model", "model reason"],
         [
             [row.pair.id, f"#{row.run}", row.pair.label, row.verdict.said or "—", row.verdict.reason]
             for row in rows
@@ -297,8 +297,8 @@ def misses_table(rows: list[PairRow]) -> Table | None:
 def full_summary_table(rows: list[FullRow], model: str) -> Table:
     metrics = full_metrics(rows)
     return Table(
-        f"Полный режим, модель подтверждения {model}",
-        ["товаров", "кандидатов", "партнёр дошёл", "found@1", "found_any", "подтверждено", "$"],
+        f"Full mode, confirmation model {model}",
+        ["products", "candidates", "partner reached", "found@1", "found_any", "confirmed", "$"],
         [
             [
                 len(rows),
@@ -318,8 +318,8 @@ def no_analog_table(rows: list[FullRow]) -> Table:
     metrics = full_metrics(rows)
     others = [c for row in rows for c in row.others]
     return Table(
-        "Исход «аналога нет» (партнёр выброшен из кандидатов)",
-        ["товаров", "кандидатов-не-партнёров", "вернул бы пусто", "ложных подтверждений на кандидат"],
+        '"No counterpart" outcome (partner removed from candidates)',
+        ["products", "non-partner candidates", "would return empty", "false confirmations per candidate"],
         [[len(rows), len(others), metrics["no_analog_ok"], metrics["false_confirm_rate"]]],
     )
 
@@ -330,8 +330,8 @@ def false_confirms_table(rows: list[FullRow]) -> Table | None:
     Только в stdout — здесь названия настоящих карточек.
     """
     table = Table(
-        "Подтверждённые не-партнёры (проверить глазами)",
-        ["пара", "товар ВБ", "кандидат Ozon", "скор", "обоснование модели"],
+        "Confirmed non-partners (check by eye)",
+        ["pair", "WB product", "Ozon candidate", "score", "model reason"],
     )
     for row in rows:
         for candidate in row.others:
@@ -496,9 +496,9 @@ def unparsed_warning(pair_rows: list[PairRow], full_rows: list[FullRow]) -> str:
     if unparsed <= UNPARSED_ALARM * len(verdicts):
         return ""
     return (
-        f"ВНИМАНИЕ: не разобрано {unparsed} вердиктов из {len(verdicts)} — цифры прогона "
-        "недействительны. Пустой ответ модели считается за no_match; типичная причина — "
-        "упёршийся лимит провайдера, а не формат ответа."
+        f"WARNING: {unparsed} of {len(verdicts)} verdicts unparsed — the run's numbers are "
+        "invalid. An empty model answer counts as no_match; the usual cause is a hit "
+        "provider limit, not the answer format."
     )
 
 
@@ -529,32 +529,32 @@ def report(
 
     print_tables(screen)
     total = sum(row.verdict.cost_usd for row in pair_rows) + sum(row.result.cost_usd for row in full_rows)
-    print(f"\nмодель подтверждения {model}, прогон ${total:.2f}")
+    print(f"\nconfirmation model {model}, run ${total:.2f}")
     if warning := unparsed_warning(pair_rows, full_rows):
         print(warning)
 
     path = write_report(
         name,
-        "Матчинг ВБ↔Озон: модель подтверждения на размеченных парах",
-        "Вырожденный режим — прямая метрика плана: precision / recall / F1 против меток пар. "
-        "Отчётная цифра берётся со строки среднего по тест-сплиту: у метрики есть разброс от "
-        "прогона к прогону при неизменных промпте и данных. Полный режим меряет весь путь "
-        "карточка ВБ → кандидаты → подтверждение; исход «аналога нет» считается по тем же "
-        "вердиктам, выбрасывая из кандидатов размеченного партнёра. Подтверждённые "
-        "не-партнёры в ошибку автоматически не пишутся — истины по ним нет, они читаются глазами.",
+        "WB↔Ozon matching: confirmation model on labeled pairs",
+        "Pair mode is the direct metric: precision / recall / F1 against pair labels. "
+        "The reported number is the mean row on the test split: the metric varies from run "
+        "to run with the same prompt and data. Full mode measures the whole path "
+        'WB listing → candidates → confirmation; the "no counterpart" outcome is computed from the same '
+        "verdicts by removing the labeled partner from the candidates. Confirmed non-partners "
+        "are not counted as errors automatically — there is no ground truth for them, they are read by eye.",
         {
-            "модель подтверждения": model,
-            "сплит": meta.get("split", "—"),
-            "лимиты": meta.get("limits", "—"),
-            "пар в вырожденном режиме": len(pair_rows),
-            "товаров в полном режиме": len(full_rows),
-            "стоимость прогона": f"${total:.2f}",
+            "confirmation model": model,
+            "split": meta.get("split", "—"),
+            "limits": meta.get("limits", "—"),
+            "pairs in pair mode": len(pair_rows),
+            "products in full mode": len(full_rows),
+            "run cost": f"${total:.2f}",
         },
         aggregates,
     )
     print(
-        f"Отчёт: {path}, сырой прогон: {dump}"
-        + ("" if not use_mlflow else "\nМетрики записаны в MLflow: эксперимент matching_b")
+        f"Report: {path}, raw run: {dump}"
+        + ("" if not use_mlflow else "\nMetrics logged to MLflow: experiment matching_b")
     )
     if use_mlflow:
         log_to_mlflow(pair_rows, full_rows, meta)
@@ -577,11 +577,11 @@ def run(
 
     if mode in ("pair", "both"):
         for number in range(1, repeat + 1):
-            print(f"\nвырожденный режим, прогон {number}/{repeat}, пар {len(pairs)}\n")
+            print(f"\npair mode, run {number}/{repeat}, pairs {len(pairs)}\n")
             pair_rows += asyncio.run(run_pairs(pairs, options, number))
     if mode in ("full", "both"):
         matches = [pair for pair in pairs if pair.label == "match"]
-        print(f"\nполный режим, товаров {len(matches)}, кандидатов до {limit} на товар\n")
+        print(f"\nfull mode, products {len(matches)}, up to {limit} candidates per product\n")
         full_rows += asyncio.run(run_full(matches, options, limit, min_score))
 
     meta = {
@@ -595,5 +595,5 @@ def run(
 def regrade(use_mlflow: bool = False, name: str = "matching_b") -> None:
     """Пересчитать метрики сохранённого прогона новым разбором. LLM не зовётся."""
     pair_rows, full_rows, meta = load_run(name)
-    print(f"перегрейд {len(pair_rows)} пар и {len(full_rows)} товаров из {RUNS_DIR / f'{name}.jsonl'}\n")
+    print(f"regrading {len(pair_rows)} pairs and {len(full_rows)} products from {RUNS_DIR / f'{name}.jsonl'}\n")
     report(pair_rows, full_rows, meta, use_mlflow, RUNS_DIR / f"{name}.jsonl", name)

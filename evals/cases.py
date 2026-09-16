@@ -120,17 +120,17 @@ def validate_sql_cases(cases: list[SqlCase]) -> list[str]:
     seen: set[str] = set()
     for case in cases:
         if not case.id:
-            problems.append(f"кейс без идентификатора: {case.question[:50]}")
+            problems.append(f"case without an id: {case.question[:50]}")
         elif case.id in seen:
-            problems.append(f"{case.id}: идентификатор повторяется")
+            problems.append(f"{case.id}: duplicate id")
         seen.add(case.id)
 
         if not case.sql.strip():
-            problems.append(f"{case.id}: нет эталонного SQL")
+            problems.append(f"{case.id}: no reference SQL")
         if not case.kind:
-            problems.append(f"{case.id}: не указана страта")
+            problems.append(f"{case.id}: no stratum")
         if case.split not in ("calibration", "test"):
-            problems.append(f"{case.id}: сплит не проставлен")
+            problems.append(f"{case.id}: split not assigned")
     return problems
 
 
@@ -192,19 +192,19 @@ def validate_routing_cases(cases: list[RoutingCase]) -> list[str]:
     seen: set[str] = set()
     for case in cases:
         if not case.id:
-            problems.append(f"кейс без идентификатора: {case.question[:50]}")
+            problems.append(f"case without an id: {case.question[:50]}")
         elif case.id in seen:
-            problems.append(f"{case.id}: идентификатор повторяется")
+            problems.append(f"{case.id}: duplicate id")
         seen.add(case.id)
 
         if not case.kind:
-            problems.append(f"{case.id}: не указана страта")
+            problems.append(f"{case.id}: no stratum")
         if case.single_hop and case.tool not in ROUTING_TOOLS:
-            problems.append(f"{case.id}: лейбл должен быть одним из {ROUTING_TOOLS}, а не {case.tool!r}")
+            problems.append(f"{case.id}: label must be one of {ROUTING_TOOLS}, got {case.tool!r}")
         if not case.single_hop and case.tool:
-            problems.append(f"{case.id}: у мультихопового кейса не должно быть лейбла, а стоит {case.tool!r}")
+            problems.append(f"{case.id}: a multihop case must have no label, got {case.tool!r}")
         if case.split not in ("calibration", "test"):
-            problems.append(f"{case.id}: сплит не проставлен")
+            problems.append(f"{case.id}: split not assigned")
     return problems
 
 
@@ -258,7 +258,7 @@ def split_sizes(cases: list[Splittable]) -> dict[str, int]:
 
 def split_summary(cases: list[Splittable]) -> str:
     sizes = split_sizes(cases)
-    return f"калибровка {sizes.get('calibration', 0)}, тест {sizes.get('test', 0)}"
+    return f"calibration {sizes.get('calibration', 0)}, test {sizes.get('test', 0)}"
 
 
 def validate(cases: list[Case]) -> list[str]:
@@ -271,19 +271,19 @@ def validate(cases: list[Case]) -> list[str]:
     seen: set[str] = set()
     for case in cases:
         if not case.id:
-            problems.append(f"кейс без идентификатора: {case.question[:50]}")
+            problems.append(f"case without an id: {case.question[:50]}")
         elif case.id in seen:
-            problems.append(f"{case.id}: идентификатор повторяется")
+            problems.append(f"{case.id}: duplicate id")
         seen.add(case.id)
 
         if case.expected == "found" and not case.relevant_ids:
-            problems.append(f"{case.id}: expected=found без relevant_ids")
+            problems.append(f"{case.id}: expected=found without relevant_ids")
         if case.expected == "absent" and case.relevant_ids:
-            problems.append(f"{case.id}: expected=absent с relevant_ids")
+            problems.append(f"{case.id}: expected=absent with relevant_ids")
         if case.expected == "absent" and case.kind not in ("near", "far"):
-            problems.append(f"{case.id}: kind должен быть near или far, а не {case.kind!r}")
+            problems.append(f"{case.id}: kind must be near or far, got {case.kind!r}")
         if case.expected not in ("found", "absent"):
             problems.append(f"{case.id}: expected={case.expected!r}")
         if case.split not in ("calibration", "test"):
-            problems.append(f"{case.id}: сплит не проставлен")
+            problems.append(f"{case.id}: split not assigned")
     return problems

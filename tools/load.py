@@ -42,7 +42,7 @@ def load_clickhouse(products: list[Product]) -> None:
     clickhouse.create_table(client)
     written = clickhouse.insert_products(client, products)
     total = client.query(f"SELECT count() FROM {CLICKHOUSE_TABLE} FINAL").result_rows[0][0]
-    print(f"ClickHouse {CLICKHOUSE_DB}.{CLICKHOUSE_TABLE}: залито {written}, всего в таблице {total}")
+    print(f"ClickHouse {CLICKHOUSE_DB}.{CLICKHOUSE_TABLE}: written {written}, total in table {total}")
 
 
 def load_qdrant(grouped: dict[Marketplace, list[Product]], composition: str, with_distractors: bool) -> None:
@@ -50,33 +50,33 @@ def load_qdrant(grouped: dict[Marketplace, list[Product]], composition: str, wit
     if with_distractors:
         background = load_distractors()
         index_products(client, "wb", background, composition, synthetic=True)
-        print(f"Qdrant {QDRANT_COLLECTIONS['wb']}: залито {len(background)} дистракторов")
+        print(f"Qdrant {QDRANT_COLLECTIONS['wb']}: written {len(background)} distractors")
     for marketplace in MARKETPLACES:
         products = grouped.get(marketplace, [])
         if not products:
             continue
-        print(f"Qdrant {QDRANT_COLLECTIONS[marketplace]}: считаю векторы для {len(products)} карточек ({composition})…")
+        print(f"Qdrant {QDRANT_COLLECTIONS[marketplace]}: embedding {len(products)} listings ({composition})…")
         written = index_products(client, marketplace, products, composition)
         total = client.count(QDRANT_COLLECTIONS[marketplace]).count
-        print(f"Qdrant {QDRANT_COLLECTIONS[marketplace]}: залито {written}, всего в коллекции {total}")
+        print(f"Qdrant {QDRANT_COLLECTIONS[marketplace]}: written {written}, total in collection {total}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--only", choices=("clickhouse", "qdrant"), help="залить только одну базу")
+    parser.add_argument("--only", choices=("clickhouse", "qdrant"), help="load only one database")
     parser.add_argument(
         "--text",
         choices=sorted(COMPOSITIONS),
         default=DEFAULT_COMPOSITION,
-        help="состав текста карточки в векторе",
+        help="listing text composition in the vector",
     )
-    parser.add_argument("--distractors", action="store_true", help="добить коллекцию ВБ придуманным фоном")
+    parser.add_argument("--distractors", action="store_true", help="add made-up background to the WB collection")
     args = parser.parse_args()
 
     products = list(load_products().values())
     if not products:
-        raise SystemExit("data/products.jsonl пуст — сначала tools/dataset.py --write")
-    print(f"Товаров в снапшоте: {len(products)}")
+        raise SystemExit("data/products.jsonl is empty — run tools/dataset.py --write first")
+    print(f"Products in snapshot: {len(products)}")
 
     if args.only != "qdrant":
         load_clickhouse(products)

@@ -43,81 +43,81 @@ def main() -> None:
 
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--golden", type=Path, default=GOLDEN_FILE)
-    common.add_argument("--no-mlflow", action="store_true", help="только stdout и отчёт")
+    common.add_argument("--no-mlflow", action="store_true", help="stdout and report only")
 
     parser = argparse.ArgumentParser(prog="python -m evals", description=__doc__, parents=[common])
     suites = parser.add_subparsers(dest="suite", required=True)
 
-    checker = suites.add_parser("check", parents=[common], help="проверить golden-set, не тратя денег")
-    checker.add_argument("--assign", action="store_true", help="проставить сплит новым кейсам")
-    checker.add_argument("--categories", action="store_true", help="напечатать категории корпуса")
-    checker.add_argument("--pairs", action="store_true", help="сплиты размеченных пар ВБ↔Озон")
-    checker.add_argument("--qa-answers", action="store_true", help="проверить ручную разметку ответов под судью-QA")
-    checker.add_argument("--qa-sample", action="store_true", help="собрать заготовку разметки ответов, не теряя меток")
+    checker = suites.add_parser("check", parents=[common], help="validate the golden set, free")
+    checker.add_argument("--assign", action="store_true", help="assign a split to new cases")
+    checker.add_argument("--categories", action="store_true", help="print corpus categories")
+    checker.add_argument("--pairs", action="store_true", help="splits of labeled WB↔Ozon pairs")
+    checker.add_argument("--qa-answers", action="store_true", help="validate manual answer labels for the QA judge")
+    checker.add_argument("--qa-sample", action="store_true", help="build an answer labeling draft, keep labels")
 
-    finder = suites.add_parser("retrieval", parents=[common], help="recall@k и MRR")
-    finder.add_argument("--limit", type=int, default=max(retrieval.K_VALUES), help="глубина выдачи")
+    finder = suites.add_parser("retrieval", parents=[common], help="recall@k and MRR")
+    finder.add_argument("--limit", type=int, default=max(retrieval.K_VALUES), help="search depth")
     finder.add_argument(
         "--text",
         nargs="+",
         choices=sorted(COMPOSITIONS),
         default=[DEFAULT_COMPOSITION],
-        help="составы текста; каждый переиндексируется и логируется отдельным прогоном",
+        help="text compositions; each is reindexed and logged as a separate run",
     )
-    finder.add_argument("--distractors", action="store_true", help="добить корпус придуманным фоном")
+    finder.add_argument("--distractors", action="store_true", help="add made-up background listings to the corpus")
 
-    asker = suites.add_parser("qa", parents=[common], help="end-to-end прогон агента (платный)")
-    asker.add_argument("--first", type=int, help="прогнать только первые N вопросов")
+    asker = suites.add_parser("qa", parents=[common], help="end-to-end agent run (paid)")
+    asker.add_argument("--first", type=int, help="run only the first N questions")
     asker.add_argument("--max-turns", type=int, default=None)
     asker.add_argument("--budget", type=float, default=None)
-    asker.add_argument("--verbose", action="store_true", help="печатать ответы, рассуждения и запросы")
-    asker.add_argument("--tag", help="суффикс отчёта и дампа: сравнительный прогон не затрёт основной")
+    asker.add_argument("--verbose", action="store_true", help="print answers, reasoning and queries")
+    asker.add_argument("--tag", help="report and dump suffix: a comparison run will not overwrite the main one")
 
-    sqler = suites.add_parser("sql", parents=[common], help="text2sql к ClickHouse (платный)")
-    sqler.add_argument("--first", type=int, help="прогнать только первые N вопросов")
+    sqler = suites.add_parser("sql", parents=[common], help="text2sql over ClickHouse (paid)")
+    sqler.add_argument("--first", type=int, help="run only the first N questions")
     sqler.add_argument("--max-turns", type=int, default=None)
     sqler.add_argument("--budget", type=float, default=None)
-    sqler.add_argument("--verbose", action="store_true", help="печатать SQL агента и ответы")
-    sqler.add_argument("--tag", help="суффикс отчёта и дампа")
+    sqler.add_argument("--verbose", action="store_true", help="print agent SQL and answers")
+    sqler.add_argument("--tag", help="report and dump suffix")
 
-    matcher = suites.add_parser("matching", parents=[common], help="матчинг ВБ↔Озон на размеченных парах (платный)")
-    matcher.add_argument("--mode", choices=("pair", "full", "both"), default="pair", help="какой режим B мерить")
+    matcher = suites.add_parser("matching", parents=[common], help="WB↔Ozon matching on labeled pairs (paid)")
+    matcher.add_argument("--mode", choices=("pair", "full", "both"), default="pair", help="which B mode to measure")
     matcher.add_argument("--split", choices=("test", "calibration", "all"), default="test")
-    matcher.add_argument("--repeat", type=int, default=1, help="прогонов вырожденного режима для усреднения")
-    matcher.add_argument("--model", default=MATCH_MODEL, help="модель подтверждения")
-    matcher.add_argument("--first", type=int, help="прогнать только первые N пар")
-    matcher.add_argument("--tag", help="суффикс отчёта и дампа")
+    matcher.add_argument("--repeat", type=int, default=1, help="pair mode runs to average")
+    matcher.add_argument("--model", default=MATCH_MODEL, help="confirmation model")
+    matcher.add_argument("--first", type=int, help="run only the first N pairs")
+    matcher.add_argument("--tag", help="report and dump suffix")
 
-    judger = suites.add_parser("judge", parents=[common], help="согласие судьи с истиной (платный)")
-    judger.add_argument("--of", dest="judge", choices=tuple(judges.JUDGES), required=True, help="какой судья")
+    judger = suites.add_parser("judge", parents=[common], help="judge agreement with ground truth (paid)")
+    judger.add_argument("--of", dest="judge", choices=tuple(judges.JUDGES), required=True, help="which judge")
     judger.add_argument("--split", choices=("test", "calibration", "all"), default="test")
-    judger.add_argument("--model", default=JUDGE_MODEL, help="модель судьи")
-    judger.add_argument("--first", type=int, help="прогнать только первые N кейсов")
-    judger.add_argument("--tag", help="суффикс отчёта и дампа")
+    judger.add_argument("--model", default=JUDGE_MODEL, help="judge model")
+    judger.add_argument("--first", type=int, help="run only the first N cases")
+    judger.add_argument("--tag", help="report and dump suffix")
     judger.add_argument(
         "--apply",
         action="store_true",
-        help="судья-B на карточках вне разметки: истины нет, цифр согласия нет",
+        help="B judge on unlabeled listings: no ground truth, no agreement numbers",
     )
 
-    router = suites.add_parser("routing", parents=[common], help="выбор тула на однохоповых вопросах (платный)")
-    router.add_argument("--first", type=int, help="прогнать только первые N вопросов")
+    router = suites.add_parser("routing", parents=[common], help="tool choice on single-hop questions (paid)")
+    router.add_argument("--first", type=int, help="run only the first N questions")
     router.add_argument("--max-turns", type=int, default=None)
     router.add_argument("--budget", type=float, default=None)
-    router.add_argument("--verbose", action="store_true", help="печатать ответы целиком")
-    router.add_argument("--tag", help="суффикс отчёта и дампа")
+    router.add_argument("--verbose", action="store_true", help="print full answers")
+    router.add_argument("--tag", help="report and dump suffix")
 
-    regrader = suites.add_parser("regrade", parents=[common], help="пересчитать метрики сохранённого прогона, без LLM")
+    regrader = suites.add_parser("regrade", parents=[common], help="recompute metrics of a saved run, no LLM")
     regrader.add_argument(
         "--of",
         dest="regrade_suite",
         choices=("qa", "sql", "routing", "matching", "judge-qa", "judge-b", "judge-c"),
         default="qa",
-        help="какую сюиту пересчитать",
+        help="which suite to regrade",
     )
-    regrader.add_argument("--tag", help="какой прогон пересчитать")
-    suites.add_parser("cost", parents=[common], help="стоимость сохранённых прогонов, без LLM")
-    suites.add_parser("all", parents=[common], help="retrieval + qa + sql + routing + matching, корпус с фоном")
+    regrader.add_argument("--tag", help="which run to regrade")
+    suites.add_parser("cost", parents=[common], help="cost of saved runs, no LLM")
+    suites.add_parser("all", parents=[common], help="retrieval + qa + sql + routing + matching, corpus with background")
 
     args = parser.parse_args()
     use_mlflow = not args.no_mlflow
@@ -167,7 +167,7 @@ def main() -> None:
         from crossmarket.config import AGENT_MAX_BUDGET_USD, AGENT_MAX_TURNS
 
         cases = _cases(args.golden, first=getattr(args, "first", None))
-        print(f"\nвопросов {len(cases)}, трейсинг Langfuse: {instrument_langfuse()}\n")
+        print(f"\nquestions {len(cases)}, Langfuse tracing: {instrument_langfuse()}\n")
         qa.run(
             cases,
             limit_turns=getattr(args, "max_turns", None) or AGENT_MAX_TURNS,
@@ -186,7 +186,7 @@ def main() -> None:
         cases = load_sql_cases(SQL_GOLDEN_FILE)
         cases = cases[:first] if first else cases
         traced = instrument_langfuse()
-        print(f"\nSQL-вопросов {len(cases)}, трейсинг Langfuse: {traced}\n")
+        print(f"\nSQL questions {len(cases)}, Langfuse tracing: {traced}\n")
         sql_suite.run(
             cases,
             limit_turns=getattr(args, "max_turns", None) or AGENT_MAX_TURNS,
@@ -207,7 +207,7 @@ def main() -> None:
         mode = getattr(args, "mode", "pair")
         model = getattr(args, "model", MATCH_MODEL)
         traced = instrument_langfuse()
-        print(f"\nПар {len(pairs)} (сплит {split}), режим {mode}, трейсинг Langfuse: {traced}\n")
+        print(f"\nPairs {len(pairs)} (split {split}), mode {mode}, Langfuse tracing: {traced}\n")
         matching.run(
             pairs,
             mode=mode,
@@ -221,7 +221,7 @@ def main() -> None:
     if args.suite == "judge":
         from crossmarket.agent import instrument_langfuse
 
-        print(f"\nтрейсинг Langfuse: {instrument_langfuse()}")
+        print(f"\nLangfuse tracing: {instrument_langfuse()}")
         if args.apply:
             judges.apply_run(model=args.model, first=args.first, name=_run_name("judge_b_apply", args.tag))
             return
@@ -244,7 +244,7 @@ def main() -> None:
         cases = load_routing_cases(ROUTING_GOLDEN_FILE)
         cases = cases[:first] if first else cases
         traced = instrument_langfuse()
-        print(f"\nВопросов роутинга {len(cases)}, трейсинг Langfuse: {traced}\n")
+        print(f"\nRouting questions {len(cases)}, Langfuse tracing: {traced}\n")
         routing.run(
             cases,
             limit_turns=getattr(args, "max_turns", None) or AGENT_MAX_TURNS,

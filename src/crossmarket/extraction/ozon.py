@@ -138,7 +138,7 @@ def extract_ozon_csv(text: str, url: str = "") -> Product:
     """
     rows = _rows(text)
     if not rows:
-        raise ValueError("CSV пуст: нет ни одной строки данных.")
+        raise ValueError("CSV is empty: no data rows.")
 
     cats_raw = _first(rows, "cats")
     characteristics_raw = _first(rows, "characteristics")

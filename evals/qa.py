@@ -42,8 +42,8 @@ def evaluate_case(case: Case, answer: Answer) -> dict[str, Any]:
 def _mark(row: dict[str, Any]) -> str:
     result: Grade = row["grade"]
     if not result.outcome_correct:
-        return "мимо" if not row["answer"].searched else "—"
-    return "отказ+" if row["case"].expected == "absent" else "+"
+        return "miss" if not row["answer"].searched else "—"
+    return "refuse+" if row["case"].expected == "absent" else "+"
 
 
 async def run_cases(cases: list[Case], limit_turns: int, budget: float, verbose: bool) -> list[dict[str, Any]]:
@@ -56,17 +56,17 @@ async def run_cases(cases: list[Case], limit_turns: int, budget: float, verbose:
 
         print(f"{number:>3}/{len(cases)} {_mark(row):<7} {case.id} {case.question[:56]}")
         if answer.limit_hit:
-            print(f"           оборвано лимитом: {answer.limit_hit}")
+            print(f"           limit hit: {answer.limit_hit}")
         if answer.error:
-            print(f"           ошибка: {answer.error[:160]}")
+            print(f"           error: {answer.error[:160]}")
         if row["grade"].unknown_ids or row["grade"].bad_prices:
-            print(f"           не из выдачи: {row['grade'].unknown_ids} {row['grade'].bad_prices}")
+            print(f"           not in tool output: {row['grade'].unknown_ids} {row['grade'].bad_prices}")
         if verbose:
             for step in answer.thinking:
-                print(f"           думает: {step[:160]}")
+                print(f"           think:  {step[:160]}")
             for call in answer.tool_calls:
-                print(f"           ищет:   {call['input'].get('question')}")
-            print(f"           ответ:  {answer.text[:300]}")
+                print(f"           search: {call['input'].get('question')}")
+            print(f"           answer: {answer.text[:300]}")
     return results
 
 
@@ -101,8 +101,8 @@ def metrics_of(rows: list[dict[str, Any]]) -> dict[str, float]:
 
 def cases_table(rows: list[dict[str, Any]]) -> Table:
     table = Table(
-        "Кейсы",
-        ["вопрос", "тип", "сплит", "cited", "shown", "faith", "исход", "ходов", "$"],
+        "Cases",
+        ["question", "type", "split", "cited", "shown", "faith", "outcome", "turns", "$"],
     )
     for row in rows:
         case, answer, result = row["case"], row["answer"], row["grade"]
@@ -113,7 +113,7 @@ def cases_table(rows: list[dict[str, Any]]) -> Table:
                 case.split,
                 result.cited_recall if case.expected == "found" else "—",
                 row["shown_recall"] if row["shown_recall"] is not None else "—",
-                "да" if result.faithful else "НЕТ",
+                "yes" if result.faithful else "NO",
                 "+" if result.outcome_correct else "—",
                 answer.num_turns,
                 f"{answer.cost_usd:.4f}",
@@ -125,10 +125,10 @@ def cases_table(rows: list[dict[str, Any]]) -> Table:
 def summary_table(rows: list[dict[str, Any]]) -> Table:
     """Метрики по всему набору и по тест-сплиту. В README идёт строка `test`."""
     table = Table(
-        "Метрики",
-        ["набор", "кейсов", "исход", "cited_recall", "shown_recall", "faithful", "тул звал", "ходов", "$/вопрос"],
+        "Metrics",
+        ["set", "cases", "outcome", "cited_recall", "shown_recall", "faithful", "tool called", "turns", "$/question"],
     )
-    groups = [("весь набор", rows), ("test (отчётный)", [row for row in rows if row["case"].split == "test"])]
+    groups = [("full set", rows), ("test (reported)", [row for row in rows if row["case"].split == "test"])]
     for name, group in groups:
         metrics = metrics_of(group)
         if not metrics:
@@ -151,7 +151,7 @@ def summary_table(rows: list[dict[str, Any]]) -> Table:
 
 def strata_table(rows: list[dict[str, Any]]) -> Table:
     """Исход по типам кейсов: с ответом в корпусе, близкий промах, далёкий."""
-    table = Table("Исход по типам кейсов", ["тип", "кейсов", "верный исход", "явный отказ", "карточек не назвал"])
+    table = Table("Outcome by case type", ["type", "cases", "correct outcome", "explicit refusal", "no listing named"])
     groups: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         groups.setdefault(row["case"].stratum, []).append(row)
@@ -165,19 +165,19 @@ def strata_table(rows: list[dict[str, Any]]) -> Table:
 
 def absent_answers_table(rows: list[dict[str, Any]]) -> Table | None:
     """Ответы на отрицательные кейсы целиком: проверка отказа идёт по словам, ответы читаются глазами."""
-    table = Table("Ответы на отрицательные кейсы", ["кейс", "тип", "отказ", "ответ"])
+    table = Table("Answers to negative cases", ["case", "type", "refusal", "answer"])
     for row in rows:
         if row["case"].expected != "absent":
             continue
         table.rows.append(
-            [row["case"].id, row["case"].kind, "да" if row["grade"].denied else "НЕТ", row["answer"].text[:200]]
+            [row["case"].id, row["case"].kind, "yes" if row["grade"].denied else "NO", row["answer"].text[:200]]
         )
     return table if table.rows else None
 
 
 def violations_table(rows: list[dict[str, Any]]) -> Table | None:
     """Что в ответе не подтвердилось выдачей тула, вместе с числом-нарушителем."""
-    table = Table("Не подтверждено выдачей тула", ["кейс", "id не из выдачи", "цены не из выдачи", "ответ"])
+    table = Table("Not backed by tool output", ["case", "ids not in output", "prices not in output", "answer"])
     for row in rows:
         result: Grade = row["grade"]
         if result.unknown_ids or result.bad_prices:
@@ -227,7 +227,7 @@ def dump_run(rows: list[dict[str, Any]], name: str = "qa_wb", limits: str = "") 
 def _limits_of(name: str) -> str:
     """Лимиты из дампа прогона, а не текущие из конфига."""
     first = json.loads((RUNS_DIR / f"{name}.jsonl").read_text(encoding="utf-8").splitlines()[0])
-    return first.get("limits") or "не записаны в дампе"
+    return first.get("limits") or "not recorded in the dump"
 
 
 def load_run(name: str = "qa_wb") -> list[dict[str, Any]]:
@@ -290,7 +290,7 @@ def run(
 def regrade(use_mlflow: bool = False, name: str = "qa_wb") -> None:
     """Пересчитать метрики сохранённого прогона новым разбором. LLM не зовётся."""
     rows = load_run(name)
-    print(f"перегрейд {len(rows)} ответов из {RUNS_DIR / f'{name}.jsonl'}\n")
+    print(f"regrading {len(rows)} answers from {RUNS_DIR / f'{name}.jsonl'}\n")
     report(rows, _limits_of(name), use_mlflow, RUNS_DIR / f"{name}.jsonl", name)
 
 
@@ -312,27 +312,26 @@ def report(rows: list[dict[str, Any]], limits: str, use_mlflow: bool, dump: Path
     for row in rows:
         subtypes[row["answer"].subtype or "—"] = subtypes.get(row["answer"].subtype or "—", 0) + 1
     total = sum(row["answer"].cost_usd for row in rows)
-    print(f"\nисходы SDK: {subtypes}")
-    print(f"вопросов {len(rows)}, модель {AGENT_MODEL}, порог {RETRIEVAL_MIN_SCORE}, прогон ${total:.2f}")
+    print(f"\nSDK outcomes: {subtypes}")
+    print(f"questions {len(rows)}, model {AGENT_MODEL}, threshold {RETRIEVAL_MIN_SCORE}, run ${total:.2f}")
 
     path = write_report(
         name,
-        "Агент над Retrieval-QA: end-to-end на golden-set",
-        "Метрика по итоговому ответу: карточка засчитана, если агент сослался на её id. "
-        "`shown_recall` (метрика этапа 2, по выдаче тула) оставлена диагностикой.",
+        "Agent over Retrieval-QA: end-to-end on the golden set",
+        "Metric on the final answer: a listing counts if the agent cited its id. "
+        "`shown_recall` (the stage 2 metric, over tool output) is kept as a diagnostic.",
         {
-            "оркестратор": AGENT_MODEL,
-            "порог по скору": RETRIEVAL_MIN_SCORE,
-            "лимиты": limits,
-            "кейсов": len(cases),
-            "сплиты": split_summary(cases),
-            "стоимость прогона": f"${total:.2f}",
+            "orchestrator": AGENT_MODEL,
+            "score threshold": RETRIEVAL_MIN_SCORE,
+            "limits": limits,
+            "cases": len(cases),
+            "splits": split_summary(cases),
+            "run cost": f"${total:.2f}",
         },
         aggregates,
     )
     print(
-        f"Отчёт: {path}, сырой прогон: {dump}"
-        + ("" if not use_mlflow else "\nМетрики записаны в MLflow: эксперимент qa_wb")
+        f"Report: {path}, raw run: {dump}" + ("" if not use_mlflow else "\nMetrics logged to MLflow: experiment qa_wb")
     )
     if use_mlflow:
         log_to_mlflow(rows, limits)

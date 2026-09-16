@@ -172,7 +172,7 @@ class Agreement:
     def for_readme(self) -> float:
         """Отчётная цифра согласия. Не с тест-сплита — `ValueError`."""
         if not self.reportable:
-            raise ValueError(f"согласие посчитано на сплите {self.split!r}, в отчёт идёт только test")
+            raise ValueError(f"agreement computed on split {self.split!r}, only test goes into the report")
         return self.accuracy
 
     def disagreements(self) -> Table:
@@ -182,7 +182,8 @@ class Agreement:
             for case_id, truth in self.truth_labels.items()
             if self.verdicts[case_id].label != truth
         ]
-        return Table(f"Расхождения судьи с истиной ({self.split})", ["кейс", "судья", "истина", "обоснование"], rows)
+        headers = ["case", "judge", "truth", "reason"]
+        return Table(f"Judge disagreements with ground truth ({self.split})", headers, rows)
 
 
 def agreement(verdicts: list[Verdict], truth: dict[str, str], positive: str, split: str) -> Agreement:
@@ -190,5 +191,5 @@ def agreement(verdicts: list[Verdict], truth: dict[str, str], positive: str, spl
     by_case = {verdict.case_id: verdict for verdict in verdicts}
     if by_case.keys() != truth.keys():
         missing = truth.keys() ^ by_case.keys()
-        raise ValueError(f"вердикты и истина не совпадают по кейсам: {sorted(missing)}")
+        raise ValueError(f"verdicts and ground truth cover different cases: {sorted(missing)}")
     return Agreement(split=split, positive=positive, truth_labels=truth, verdicts=by_case)

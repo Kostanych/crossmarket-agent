@@ -91,7 +91,7 @@ def to_row(product: Product) -> list[object]:
     Время снапшота в модели строкой, а драйвер ждёт `datetime`.
     """
     if product.price_rub is None:
-        raise ValueError(f"{product.marketplace}/{product.id}: нет цены, такие карточки в снапшот не идут.")
+        raise ValueError(f"{product.marketplace}/{product.id}: no price, such listings are kept out of the snapshot.")
     return [
         product.marketplace,
         product.id,

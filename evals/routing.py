@@ -113,18 +113,18 @@ async def run_cases(cases: list[RoutingCase], limit_turns: int, budget: float, v
 
         mark = "—" if case.single_hop and not result.routed else "+"
         print(f"{number:>3}/{len(cases)} {mark:<5} {case.id} [{case.kind}] {case.question[:50]}")
-        print(f"           звал: {' → '.join(result.sequence) or 'ничего'}, ожидался {case.tool or '—'}")
+        print(f"           called: {' → '.join(result.sequence) or 'nothing'}, expected {case.tool or '—'}")
         if answer.limit_hit:
-            print(f"           оборвано лимитом: {answer.limit_hit}")
+            print(f"           limit hit: {answer.limit_hit}")
         if answer.error:
-            print(f"           ошибка: {answer.error[:160]}")
+            print(f"           error: {answer.error[:160]}")
         if verbose:
-            print(f"           ответ:  {answer.text[:300]}")
+            print(f"           answer: {answer.text[:300]}")
     return results
 
 
 def cases_table(rows: list[dict[str, Any]]) -> Table:
-    table = Table("Кейсы", ["вопрос", "страта", "сплит", "ожидался", "звал", "верно", "ходов", "$"])
+    table = Table("Cases", ["question", "stratum", "split", "expected", "called", "correct", "turns", "$"])
     for row in rows:
         case, answer, result = row["case"], row["answer"], row["grade"]
         table.rows.append(
@@ -145,10 +145,10 @@ def cases_table(rows: list[dict[str, Any]]) -> Table:
 def summary_table(rows: list[dict[str, Any]]) -> Table:
     """Метрики по всему набору и по тест-сплиту. В README идёт строка `test`."""
     table = Table(
-        "Метрики роутинга",
-        ["набор", "однохоповых", "routed", "нужный тул звал", "звал и лишний", "не звал ничего", "ходов", "$/вопрос"],
+        "Routing metrics",
+        ["set", "single-hop", "routed", "right tool", "extra tool", "no tool", "turns", "$/question"],
     )
-    groups = [("весь набор", rows), ("test (отчётный)", [row for row in rows if row["case"].split == "test"])]
+    groups = [("full set", rows), ("test (reported)", [row for row in rows if row["case"].split == "test"])]
     for name, group in groups:
         metrics = metrics_of(group)
         if "routed" not in metrics:
@@ -170,7 +170,7 @@ def summary_table(rows: list[dict[str, Any]]) -> Table:
 
 def strata_table(rows: list[dict[str, Any]]) -> Table:
     """Разрез по типам вопросов: прямые против пограничных."""
-    table = Table("По типам вопросов", ["страта", "кейсов", "routed", "звал и лишний", "скилл звал", "ходов"])
+    table = Table("By question type", ["stratum", "cases", "routed", "extra tool", "skill called", "turns"])
     groups: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         groups.setdefault(row["case"].kind, []).append(row)
@@ -191,7 +191,7 @@ def strata_table(rows: list[dict[str, Any]]) -> Table:
 
 def multihop_table(rows: list[dict[str, Any]]) -> Table | None:
     """Цепочки целиком: тулы по порядку и ответ. Без метрики, только в stdout: в ответах данные карточек."""
-    table = Table("Мультихоповые кейсы (вне метрики)", ["кейс", "тулы", "ходов", "ответ"])
+    table = Table("Multihop cases (outside the metric)", ["case", "tools", "turns", "answer"])
     for row in rows:
         if row["case"].single_hop:
             continue
@@ -208,7 +208,7 @@ def multihop_table(rows: list[dict[str, Any]]) -> Table | None:
 
 def misses_table(rows: list[dict[str, Any]]) -> Table | None:
     """Кейсы, где первый тул не тот, вместе с вопросом."""
-    table = Table("Промахи роутинга", ["кейс", "страта", "ожидался", "звал", "вопрос"])
+    table = Table("Routing misses", ["case", "stratum", "expected", "called", "question"])
     for row in rows:
         case, result = row["case"], row["grade"]
         if not case.single_hop or result.routed:
@@ -250,7 +250,7 @@ def dump_run(rows: list[dict[str, Any]], name: str, limits: str = "") -> Path:
 def _limits_of(name: str) -> str:
     """Лимиты из дампа прогона, а не текущие из конфига."""
     first = json.loads((RUNS_DIR / f"{name}.jsonl").read_text(encoding="utf-8").splitlines()[0])
-    return first.get("limits") or "не записаны в дампе"
+    return first.get("limits") or "not recorded in the dump"
 
 
 def load_run(name: str) -> list[dict[str, Any]]:
@@ -308,7 +308,7 @@ def run(
 def regrade(use_mlflow: bool = False, name: str = "routing") -> None:
     """Пересчитать метрики сохранённого прогона новым разбором. LLM не зовётся."""
     rows = load_run(name)
-    print(f"перегрейд {len(rows)} прогонов из {RUNS_DIR / f'{name}.jsonl'}\n")
+    print(f"regrading {len(rows)} runs from {RUNS_DIR / f'{name}.jsonl'}\n")
     report(rows, _limits_of(name), use_mlflow, RUNS_DIR / f"{name}.jsonl", name)
 
 
@@ -325,26 +325,26 @@ def report(rows: list[dict[str, Any]], limits: str, use_mlflow: bool, dump: Path
 
     total = sum(row["answer"].cost_usd for row in rows)
     single = sum(1 for case in cases if case.single_hop)
-    print(f"\nвопросов {len(rows)} (в accuracy {single}), модель {AGENT_MODEL}, прогон ${total:.2f}")
+    print(f"\nquestions {len(rows)} (in accuracy {single}), model {AGENT_MODEL}, run ${total:.2f}")
 
     path = write_report(
         name,
-        "Роутинг A+B+C: какой тул выбирает оркестратор",
-        "Accuracy роутинга — доля однохоповых вопросов, где первым вызванным тулом оказался "
-        "размеченный. Вызовы скилла из последовательности вычищены. Мультихоповые кейсы в метрику "
-        "не входят: правильных вызовов там несколько, и порядок между ними вопросом задан не всегда.",
+        "A+B+C routing: which tool the orchestrator picks",
+        "Routing accuracy is the share of single-hop questions where the first tool called is the labeled one. "
+        "Skill calls are removed from the sequence. Multihop cases are outside the metric: they have several "
+        "correct calls, and the question does not always fix their order.",
         {
-            "оркестратор": AGENT_MODEL,
-            "лимиты": limits,
-            "кейсов": f"{len(cases)}, из них в accuracy {single}",
-            "сплиты": split_summary(cases),
-            "стоимость прогона": f"${total:.2f}",
+            "orchestrator": AGENT_MODEL,
+            "limits": limits,
+            "cases": f"{len(cases)}, in accuracy {single}",
+            "splits": split_summary(cases),
+            "run cost": f"${total:.2f}",
         },
         aggregates,
     )
     print(
-        f"Отчёт: {path}, сырой прогон: {dump}"
-        + ("" if not use_mlflow else "\nМетрики записаны в MLflow: эксперимент routing")
+        f"Report: {path}, raw run: {dump}"
+        + ("" if not use_mlflow else "\nMetrics logged to MLflow: experiment routing")
     )
     if use_mlflow:
         log_to_mlflow(rows, limits)

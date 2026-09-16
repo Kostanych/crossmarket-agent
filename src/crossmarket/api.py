@@ -87,10 +87,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     запрос. Выход: досылка спанов.
     """
     tracing = agent.instrument_langfuse()
-    print(f"трейсинг Langfuse: {tracing}")
+    print(f"Langfuse tracing: {tracing}")
     encode_queries(["прогрев"])
     yield
-    if tracing == "включён":
+    if tracing == "enabled":
         agent.flush_langfuse()
 
 

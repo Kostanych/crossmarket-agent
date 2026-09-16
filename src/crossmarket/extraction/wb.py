@@ -37,7 +37,7 @@ def _first_row(text: str) -> dict[str, str]:
     reader = csv.DictReader(io.StringIO(text.lstrip("﻿")))
     for row in reader:
         return {(k or "").strip().lower(): (v or "") for k, v in row.items()}
-    raise ValueError("CSV пуст: нет ни одной строки данных.")
+    raise ValueError("CSV is empty: no data rows.")
 
 
 def _cell(row: dict[str, str], *names: str) -> str:

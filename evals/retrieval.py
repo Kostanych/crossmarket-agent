@@ -76,7 +76,7 @@ def metrics_of(rows: list[dict[str, Any]]) -> dict[str, float]:
 
 
 def cases_table(rows: list[dict[str, Any]]) -> Table:
-    table = Table("Кейсы", ["вопрос", "сплит", "релев.", "ранг", "recall@10"])
+    table = Table("Cases", ["question", "split", "relevant", "rank", "recall@10"])
     for row in rows:
         case = row["case"]
         table.rows.append([case.question, case.split, len(case.relevant_ids), row["rank"], row["recall"][10]])
@@ -86,8 +86,8 @@ def cases_table(rows: list[dict[str, Any]]) -> Table:
 def summary_table(rows: list[dict[str, Any]]) -> Table:
     """Метрики по всему набору и по тест-сплиту. В README идёт строка `test`:
     состав вектора подбирался на всём наборе, и цифра по нему смещена вверх."""
-    table = Table("Метрики", ["набор", "кейсов", "recall@1", "recall@5", "recall@10", "MRR", "не найдено"])
-    groups = [("весь набор", rows), ("test (отчётный)", [row for row in rows if row["case"].split == "test"])]
+    table = Table("Metrics", ["set", "cases", "recall@1", "recall@5", "recall@10", "MRR", "not found"])
+    groups = [("full set", rows), ("test (reported)", [row for row in rows if row["case"].split == "test"])]
     for name, group in groups:
         metrics = metrics_of(group)
         if not metrics:
@@ -109,7 +109,7 @@ def summary_table(rows: list[dict[str, Any]]) -> Table:
 def scores_table(rows: list[dict[str, Any]]) -> Table:
     """Распределение скора топ-1 по типам кейсов: видно, разделяются ли «есть ответ»
     и «нет ответа» порогом."""
-    table = Table("Скор топ-1 по типам кейсов", ["тип", "кейсов", "min", "медиана", "max"])
+    table = Table("Top-1 score by case type", ["type", "cases", "min", "median", "max"])
     groups: dict[str, list[float]] = {}
     for row in rows:
         if row["top_score"] is not None:
@@ -129,12 +129,12 @@ def reindex(composition: str, with_distractors: bool) -> tuple[int, int]:
     client = qdrant.connect()
     qdrant.drop_collection(client, "wb")
 
-    print(f"\n=== {composition}{', с фоном' if with_distractors else ''}: индексирую {len(real)} карточек ВБ…")
+    print(f"\n=== {composition}{', with background' if with_distractors else ''}: indexing {len(real)} WB listings…")
     index_products(client, "wb", real, composition)
 
     background = load_distractors() if with_distractors else []
     if background:
-        print(f"    плюс {len(background)} дистракторов")
+        print(f"    plus {len(background)} distractors")
         index_products(client, "wb", background, composition, synthetic=True)
     return len(real) + len(background), len(background)
 
@@ -165,7 +165,8 @@ def log_to_mlflow(rows: list[dict[str, Any]], composition: str, corpus_size: int
 
 
 def comparison_table(summary: dict[str, dict[str, float]]) -> Table:
-    table = Table("Сравнение составов", ["состав текста", "recall@1", "recall@5", "recall@10", "MRR", "не найдено"])
+    headers = ["text composition", "recall@1", "recall@5", "recall@10", "MRR", "not found"]
+    table = Table("Composition comparison", headers)
     for name in sorted(summary):
         metrics = summary[name]
         table.rows.append(
@@ -199,7 +200,7 @@ def run(
 
         tables = [summary_table(labelled), scores_table(rows)]
         print_tables([cases_table(labelled), *tables])
-        print(f"\nвопросов с разметкой {len(labelled)}, корпус {corpus_size} карточек, модель {EMBEDDING_MODEL}")
+        print(f"\nlabeled questions {len(labelled)}, corpus {corpus_size} listings, model {EMBEDDING_MODEL}")
 
         summary[f"{composition}+bg" if background else composition] = metrics_of(labelled)
         if use_mlflow:
@@ -211,16 +212,16 @@ def run(
 
     path = write_report(
         "retrieval_wb",
-        "Retrieval: recall@k и MRR на golden-set ВБ",
-        "Голый поиск без агента: вопрос уходит в эмбеддер как есть. Порога по скору нет — "
-        "в recall@k он может только выкинуть верную карточку.",
+        "Retrieval: recall@k and MRR on the WB golden set",
+        "Bare search without the agent: the question goes to the embedder as is. No score threshold — "
+        "in recall@k it could only drop the correct listing.",
         {
-            "эмбеддер": EMBEDDING_MODEL,
-            "состав текста": ", ".join(compositions),
-            "корпус": f"{corpus_size} карточек, из них фона {background}",
-            "кейсов": len(cases),
-            "сплиты": split_summary(cases),
+            "embedder": EMBEDDING_MODEL,
+            "text composition": ", ".join(compositions),
+            "corpus": f"{corpus_size} listings, background {background}",
+            "cases": len(cases),
+            "splits": split_summary(cases),
         },
         tables,
     )
-    print(f"\nОтчёт: {path}" + ("" if not use_mlflow else "\nМетрики записаны в MLflow: эксперимент retrieval_wb"))
+    print(f"\nReport: {path}" + ("" if not use_mlflow else "\nMetrics logged to MLflow: experiment retrieval_wb"))

@@ -52,7 +52,7 @@ def check_pairs(assign: bool = False) -> list[str]:
     """Сплит пар ВБ↔Озон: раздать, если просят, и напечатать страты."""
     pairs = pairs_module.load_pairs()
     if assign and (changed := pairs_module.assign(pairs)):
-        print(f"Парам проставлен сплит: {len(changed)}")
+        print(f"Split assigned to pairs: {len(changed)}")
     print(f"\n{pairs_module.summary(pairs)}")
     for stratum, sizes in pairs_module.strata(pairs).items():
         print(f"  {stratum:<16} {sizes}")
@@ -69,17 +69,17 @@ def check_answers(sample: bool = False) -> list[str]:
         fresh = answers_module.merge(answers_module.sample(), existing)
         answers_module.save_answers(fresh)
         readable = answers_module.write_readable(fresh)
-        print(f"Заготовка разметки: {answers_module.ANSWERS_FILE} (метки), {readable} (читать)")
-        print(f"Было размечено: {len(existing)}")
+        print(f"Labeling draft: {answers_module.ANSWERS_FILE} (labels), {readable} (to read)")
+        print(f"Already labeled: {len(existing)}")
         existing = fresh
     if not existing:
-        return [f"{answers_module.ANSWERS_FILE} пуст, собрать заготовку: python -m evals check --qa-sample"]
+        return [f"{answers_module.ANSWERS_FILE} is empty, build a draft: python -m evals check --qa-sample"]
 
     print(f"\n{answers_module.summary(existing)}")
     strata: dict[str, int] = {}
     for case in existing:
         strata[case.stratum] = strata.get(case.stratum, 0) + 1
-    print(f"Страты ответов: {dict(sorted(strata.items()))}")
+    print(f"Answer strata: {dict(sorted(strata.items()))}")
     return answers_module.validate(existing)
 
 
@@ -90,7 +90,7 @@ def check_sql_cases(assign: bool = False) -> list[str]:
     cases = load_sql_cases()
     if assign and (changed := assign_splits(cases)):
         save_sql_cases(cases)
-        print(f"SQL-кейсам проставлен сплит: {', '.join(f'{c.id}→{c.split}' for c in changed)}")
+        print(f"Split assigned to SQL cases: {', '.join(f'{c.id}→{c.split}' for c in changed)}")
 
     problems = validate_sql_cases(cases)
     client = clickhouse.connect()
@@ -99,14 +99,14 @@ def check_sql_cases(assign: bool = False) -> list[str]:
         strata[case.kind] = strata.get(case.kind, 0) + 1
         result = run_sql(client, case.sql)
         if not result.ok:
-            problems.append(f"{case.id}: эталонный SQL не исполняется — {result.error[:120]}")
+            problems.append(f"{case.id}: reference SQL fails — {result.error[:120]}")
         elif case.kind == "empty" and result.total_rows:
-            problems.append(f"{case.id}: страта empty, а строк {result.total_rows}")
+            problems.append(f"{case.id}: stratum empty, but {result.total_rows} rows")
         elif case.kind != "empty" and not result.total_rows:
-            problems.append(f"{case.id}: пустой результат вне страты empty")
+            problems.append(f"{case.id}: empty result outside stratum empty")
 
-    print(f"\nSQL-кейсов {len(cases)}: {split_sizes(cases)}")
-    print(f"Страты: {dict(sorted(strata.items()))}")
+    print(f"\nSQL cases {len(cases)}: {split_sizes(cases)}")
+    print(f"Strata: {dict(sorted(strata.items()))}")
     return problems
 
 
@@ -115,14 +115,14 @@ def check_routing_cases(assign: bool = False) -> list[str]:
     cases = load_routing_cases()
     if assign and (changed := assign_splits(cases)):
         save_routing_cases(cases)
-        print(f"Кейсам роутинга проставлен сплит: {', '.join(f'{c.id}→{c.split}' for c in changed)}")
+        print(f"Split assigned to routing cases: {', '.join(f'{c.id}→{c.split}' for c in changed)}")
 
     strata: dict[str, int] = {}
     for case in cases:
         strata[case.kind] = strata.get(case.kind, 0) + 1
     single = sum(1 for case in cases if case.single_hop)
-    print(f"\nКейсов роутинга {len(cases)}, из них в accuracy {single}: {split_sizes(cases)}")
-    print(f"Страты: {dict(sorted(strata.items()))}")
+    print(f"\nRouting cases {len(cases)}, in accuracy {single}: {split_sizes(cases)}")
+    print(f"Strata: {dict(sorted(strata.items()))}")
     return validate_routing_cases(cases)
 
 
@@ -136,11 +136,11 @@ def run(
 ) -> int:
     """Ноль — файл в порядке. Ненулевой код возврата ломает `make eval` до трат."""
     cases = load_cases(path)
-    print(f"Кейсов {len(cases)}, из них с ответом в корпусе {sum(c.expected == 'found' for c in cases)}")
+    print(f"Cases {len(cases)}, answerable from the corpus {sum(c.expected == 'found' for c in cases)}")
 
     if assign and (changed := assign_splits(cases)):
         save_cases(cases, path)
-        print(f"Проставлен сплит: {', '.join(f'{case.id}→{case.split}' for case in changed)}")
+        print(f"Split assigned: {', '.join(f'{case.id}→{case.split}' for case in changed)}")
 
     problems = validate(cases)
     problems += check_sql_cases(assign)
@@ -153,23 +153,23 @@ def run(
     for case in cases:
         for product_id in case.relevant_ids:
             if product_id not in corpus:
-                problems.append(f"{case.id}: карточки {product_id} нет в снапшоте")
+                problems.append(f"{case.id}: listing {product_id} is not in the snapshot")
 
     strata: dict[str, int] = {}
     for case in cases:
         strata[case.stratum] = strata.get(case.stratum, 0) + 1
-    print(f"Сплиты: {split_sizes(cases)}")
-    print(f"Страты: {dict(sorted(strata.items()))}")
+    print(f"Splits: {split_sizes(cases)}")
+    print(f"Strata: {dict(sorted(strata.items()))}")
 
     if categories:
-        print("\nКатегории корпуса ВБ (в них ответ есть — отрицательный вопрос должен быть про другое):")
+        print("\nWB corpus categories (answerable — a negative question must be about something else):")
         for name, count in _categories(corpus).items():
             print(f"  {count:>3}  {name}")
 
     absent = [case for case in cases if case.expected == "absent"]
     if absent:
-        print("\nОтрицательные кейсы: ближайшие настоящие карточки — проверить глазами, что ответа нет")
-        print("Дистракторы пропущены: они придуманы и ответом быть не могут, а места в выдаче занимают.")
+        print("\nNegative cases: nearest real listings — check by eye that none answers the question")
+        print("Distractors skipped: they are made up and cannot be an answer, but they take slots in the output.")
         client = qdrant.connect()
         vectors = encode_queries([case.question for case in absent])
         for case, vector in zip(absent, vectors, strict=True):
@@ -177,15 +177,15 @@ def run(
             hits = qdrant.search(client, "wb", vector, limit=NEIGHBOUR_DEPTH)
             real = [hit for hit in hits if hit["id"] in corpus][:NEIGHBOURS]
             if not real:
-                print(f"      ничего настоящего в топ-{NEIGHBOUR_DEPTH}")
+                print(f"      nothing real in top-{NEIGHBOUR_DEPTH}")
             for hit in real:
                 card = corpus[hit["id"]]
                 print(f"      {hit['score']:.3f}  {card.title[:60]:<60} [{card.category}]")
 
     if problems:
-        print("\nПроблемы:")
+        print("\nProblems:")
         for problem in problems:
             print(f"  {problem}")
         return 1
-    print("\nGolden-set в порядке.")
+    print("\nGolden set is OK.")
     return 0

@@ -177,7 +177,7 @@ def grade(case: SqlCase, answer: Answer, client: Any) -> SqlGrade:
     """Прогнать запросы агента и эталон по базе, сравнить результаты."""
     reference = run_sql(client, case.sql, shown_rows=MAX_RESULT_ROWS)
     if not reference.ok:
-        return SqlGrade(error=f"эталонный SQL не исполняется: {reference.error}")
+        return SqlGrade(error=f"reference SQL fails: {reference.error}")
 
     result = SqlGrade(answer_match=answer_mentions(answer.text, reference.rows, case.ordered))
     for sql in agent_sqls(answer):
@@ -198,7 +198,7 @@ def grade(case: SqlCase, answer: Answer, client: Any) -> SqlGrade:
         if not result.result_match:
             result.sql, result.rows_returned = sql, got.total_rows
     if not result.executed and result.attempts:
-        result.error = "ни один запрос не исполнился"
+        result.error = "no query executed"
     return result
 
 
@@ -234,25 +234,25 @@ async def run_cases(cases: list[SqlCase], limit_turns: int, budget: float, verbo
         result = grade(case, answer, client)
         results.append({"case": case, "answer": answer, "grade": result})
 
-        mark = "+" if result.result_match else ("~" if result.executed else "мимо")
+        mark = "+" if result.result_match else ("~" if result.executed else "miss")
         print(f"{number:>3}/{len(cases)} {mark:<5} {case.id} [{case.kind}] {case.question[:52]}")
         if answer.limit_hit:
-            print(f"           оборвано лимитом: {answer.limit_hit}")
+            print(f"           limit hit: {answer.limit_hit}")
         if answer.error:
-            print(f"           ошибка: {answer.error[:160]}")
+            print(f"           error: {answer.error[:160]}")
         if result.failures:
-            print(f"           запросов с ошибкой: {result.failures} из {result.attempts}")
+            print(f"           failed queries: {result.failures} of {result.attempts}")
         if verbose:
             for sql in agent_sqls(answer):
                 print(f"           sql:    {sql[:160]}")
-            print(f"           ответ:  {answer.text[:300]}")
+            print(f"           answer: {answer.text[:300]}")
     return results
 
 
 def cases_table(rows: list[dict[str, Any]]) -> Table:
     table = Table(
-        "Кейсы",
-        ["вопрос", "страта", "сплит", "совпало", "точно", "в ответе", "запросов", "ходов", "$"],
+        "Cases",
+        ["question", "stratum", "split", "result", "exact", "in answer", "queries", "turns", "$"],
     )
     for row in rows:
         case, answer, result = row["case"], row["answer"], row["grade"]
@@ -275,10 +275,10 @@ def cases_table(rows: list[dict[str, Any]]) -> Table:
 def summary_table(rows: list[dict[str, Any]]) -> Table:
     """Метрики по всему набору и по тест-сплиту. В README идёт строка `test`."""
     table = Table(
-        "Метрики",
-        ["набор", "кейсов", "result_match", "exact_match", "answer_match", "SQL исполнился", "с первого раза", "$"],
+        "Metrics",
+        ["set", "cases", "result_match", "exact_match", "answer_match", "SQL executed", "first try", "$"],
     )
-    groups = [("весь набор", rows), ("test (отчётный)", [row for row in rows if row["case"].split == "test"])]
+    groups = [("full set", rows), ("test (reported)", [row for row in rows if row["case"].split == "test"])]
     for name, group in groups:
         metrics = metrics_of(group)
         if not metrics:
@@ -299,7 +299,7 @@ def summary_table(rows: list[dict[str, Any]]) -> Table:
 
 
 def strata_table(rows: list[dict[str, Any]]) -> Table:
-    table = Table("По типам вопросов", ["страта", "кейсов", "result_match", "с первого раза", "запросов на вопрос"])
+    table = Table("By question type", ["stratum", "cases", "result_match", "first try", "queries per question"])
     groups: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         groups.setdefault(row["case"].kind, []).append(row)
@@ -313,7 +313,7 @@ def misses_table(rows: list[dict[str, Any]]) -> Table | None:
     """Где не совпало: вопрос, эталон и запрос агента рядом. Только в stdout и в дампе:
     эталонный SQL и результаты несут данные карточек.
     """
-    table = Table("Расхождения", ["кейс", "эталонный SQL", "SQL агента", "строк"])
+    table = Table("Mismatches", ["case", "reference SQL", "agent SQL", "rows"])
     for row in rows:
         result = row["grade"]
         if result.result_match:
@@ -353,7 +353,7 @@ def dump_run(rows: list[dict[str, Any]], name: str, limits: str = "") -> Path:
 def _limits_of(name: str) -> str:
     """Лимиты из дампа прогона, а не текущие из конфига."""
     first = json.loads((RUNS_DIR / f"{name}.jsonl").read_text(encoding="utf-8").splitlines()[0])
-    return first.get("limits") or "не записаны в дампе"
+    return first.get("limits") or "not recorded in the dump"
 
 
 def load_run(name: str) -> list[dict[str, Any]]:
@@ -409,7 +409,7 @@ def run(
 def regrade(use_mlflow: bool = False, name: str = "sql_c") -> None:
     """Пересчитать метрики сохранённого прогона новым сравнением. LLM не зовётся."""
     rows = load_run(name)
-    print(f"перегрейд {len(rows)} ответов из {RUNS_DIR / f'{name}.jsonl'}\n")
+    print(f"regrading {len(rows)} answers from {RUNS_DIR / f'{name}.jsonl'}\n")
     report(rows, _limits_of(name), use_mlflow, RUNS_DIR / f"{name}.jsonl", name)
 
 
@@ -423,27 +423,27 @@ def report(rows: list[dict[str, Any]], limits: str, use_mlflow: bool, dump: Path
     print_tables(screen)
 
     total = sum(row["answer"].cost_usd for row in rows)
-    print(f"\nвопросов {len(rows)}, модель {AGENT_MODEL}, прогон ${total:.2f}")
+    print(f"\nquestions {len(rows)}, model {AGENT_MODEL}, run ${total:.2f}")
 
     path = write_report(
         name,
-        "Tool C: text2sql к снапшоту ClickHouse",
-        "Ответ засчитан, если строки хотя бы одного исполнившегося запроса агента совпали со строками "
-        "эталонного SQL кейса после нормализации: округление чисел, порядок строк у неупорядоченных "
-        "вопросов, перестановка и лишние колонки. `exact_match` — совпадение без послаблений по форме, "
-        "`answer_match` — названы ли эталонные значения в самом тексте ответа.",
+        "Tool C: text2sql over the ClickHouse snapshot",
+        "An answer counts if the rows of at least one executed agent query match the rows of the case's "
+        "reference SQL after normalization: rounding of numbers, row order for unordered questions, "
+        "column permutations and extra columns. `exact_match` is a match with no leniency on shape, "
+        "`answer_match` is whether the reference values are named in the answer text itself.",
         {
-            "оркестратор": AGENT_MODEL,
-            "лимиты": limits,
-            "кейсов": len(cases),
-            "сплиты": split_summary(cases),
-            "стоимость прогона": f"${total:.2f}",
+            "orchestrator": AGENT_MODEL,
+            "limits": limits,
+            "cases": len(cases),
+            "splits": split_summary(cases),
+            "run cost": f"${total:.2f}",
         },
         aggregates,
     )
     print(
-        f"Отчёт: {path}, сырой прогон: {dump}"
-        + ("" if not use_mlflow else "\nМетрики записаны в MLflow: эксперимент text2sql")
+        f"Report: {path}, raw run: {dump}"
+        + ("" if not use_mlflow else "\nMetrics logged to MLflow: experiment text2sql")
     )
     if use_mlflow:
         log_to_mlflow(rows, limits)

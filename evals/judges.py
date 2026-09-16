@@ -233,7 +233,7 @@ def load_b_cases(dumps: dict[str, str] = MATCHING_DUMPS) -> list[JudgeCase]:
                 stratum=record["label"],
                 truth="good" if record["said"] == record["label"] else "bad",
                 prompt=pair_prompt(wb, ozon, record["said"], record.get("reason", "")),
-                note=f"тул: {record['said']}, метка: {record['label']}",
+                note=f"tool: {record['said']}, label: {record['label']}",
             )
         )
     return cases
@@ -292,7 +292,7 @@ def qa_checker_table(cases: list[JudgeCase], _: dict[str, Agreement]) -> list[Ta
     from evals.answers import load_answers
 
     checker = {case.id: case.checker for case in load_answers()}
-    table = Table("Чекер grading.py против той же ручной истины", ["сплит", "кейсов", "согласие"])
+    table = Table("grading.py checker against the same manual ground truth", ["split", "cases", "agreement"])
     for split in ("calibration", "test"):
         group = [case for case in cases if case.split == split]
         if not group:
@@ -305,29 +305,29 @@ def qa_checker_table(cases: list[JudgeCase], _: dict[str, Agreement]) -> list[Ta
 JUDGES = {
     "qa": Judge(
         name="qa",
-        title="Судья-QA: согласие с ручной разметкой ответов",
+        title="QA judge: agreement with manual answer labels",
         prompt=QA_PROMPT,
         load=load_qa_cases,
-        intro="Истина — ручная разметка ответов агента (opus и haiku на одном golden-set). "
-        "Рядом с судьёй печатается детерминированный чекер `evals/grading.py` на той же истине: "
-        "судья, который его не обыгрывает, не нужен.",
+        intro="Ground truth is manual labels of agent answers (opus and haiku on the same golden set). "
+        "Next to the judge, the deterministic checker `evals/grading.py` is scored on the same ground truth: "
+        "a judge that does not beat it is not needed.",
         extra=qa_checker_table,
     ),
     "b": Judge(
         name="b",
-        title="Судья-B: согласие с истиной на вердиктах матчера",
+        title="B judge: agreement with ground truth on matcher verdicts",
         prompt=B_PROMPT,
         load=load_b_cases,
-        intro="Судья оценивает вердикт модели подтверждения вместе с обоснованием, а не решает пару сам. "
-        "Истина — совпал ли вердикт тула с меткой разметчика.",
+        intro="The judge grades the confirmation model's verdict together with its reason "
+        "instead of deciding the pair itself. Ground truth is whether the tool's verdict matches the labeler's label.",
     ),
     "c": Judge(
         name="c",
-        title="Судья-C: согласие с эталонным SQL",
+        title="C judge: agreement with reference SQL",
         prompt=_sql_prompt(),
         load=load_c_cases,
-        intro="Истина — `result_match`: совпал ли результат запроса агента с эталонным запросом кейса. "
-        "Набор собран из нескольких прогонов тула C, включая haiku: на одном прогоне opus промахов единицы.",
+        intro="Ground truth is `result_match`: whether the agent query result matches the case's reference query. "
+        "The set is built from several tool C runs, haiku included: a single opus run has only a handful of misses.",
     ),
 }
 
@@ -351,13 +351,13 @@ def split_agreements(cases: list[JudgeCase], verdicts: list[Verdict]) -> dict[st
 
 def summary_table(agreements: dict[str, Agreement], model: str) -> Table:
     table = Table(
-        f"Согласие судьи с истиной ({model})",
-        ["сплит", "кейсов", "согласие", "baseline", "precision", "recall", "F1", "неразобрано", "$"],
+        f"Judge agreement with ground truth ({model})",
+        ["split", "cases", "agreement", "baseline", "precision", "recall", "F1", "unparsed", "$"],
     )
     for split, result in agreements.items():
         table.rows.append(
             [
-                split + (" (отчётный)" if split == "test" else ""),
+                split + (" (reported)" if split == "test" else ""),
                 result.total,
                 result.accuracy,
                 result.baseline,
@@ -374,7 +374,7 @@ def summary_table(agreements: dict[str, Agreement], model: str) -> Table:
 def strata_table(cases: list[JudgeCase], verdicts: list[Verdict]) -> Table:
     """Где судья ошибается — по стратам источника, на всём наборе."""
     by_case = {verdict.case_id: verdict for verdict in verdicts}
-    table = Table("По стратам (весь набор)", ["страта", "кейсов", "плохих по истине", "согласие"])
+    table = Table("By stratum (full set)", ["stratum", "cases", "bad by truth", "agreement"])
     for stratum in sorted({case.stratum for case in cases}):
         group = [case for case in cases if case.stratum == stratum]
         agreed = sum(1 for case in group if by_case[case.id].label == case.truth)
@@ -391,8 +391,8 @@ def disagreements_table(cases: list[JudgeCase], verdicts: list[Verdict], with_re
     """
     by_case = {verdict.case_id: verdict for verdict in verdicts}
     table = Table(
-        "Расхождения судьи с истиной",
-        ["кейс", "сплит", "судья", "истина"] + (["обоснование судьи"] if with_reason else []),
+        "Judge disagreements with ground truth",
+        ["case", "split", "judge", "truth"] + (["judge reason"] if with_reason else []),
     )
     for case in cases:
         verdict = by_case[case.id]
@@ -502,27 +502,27 @@ def report(
 
     unparsed = sum(1 for verdict in verdicts if not verdict.label)
     if unparsed > len(verdicts) / 10:
-        print(f"\nВНИМАНИЕ: у судьи не разобрано {unparsed} ответов из {len(verdicts)} — цифрам верить нельзя.")
+        print(f"\nWARNING: {unparsed} of {len(verdicts)} judge answers unparsed — the numbers cannot be trusted.")
     total = sum(verdict.cost_usd for verdict in verdicts)
-    print(f"\nкейсов {len(cases)}, судья {model}, прогон ${total:.2f}")
+    print(f"\ncases {len(cases)}, judge {model}, run ${total:.2f}")
 
     path = write_report(
         name,
         judge.title,
         judge.intro,
         {
-            "судья": model,
-            "кейсов": len(cases),
-            "сплиты": ", ".join(f"{split} {result.total}" for split, result in agreements.items()),
-            "положительный класс": POSITIVE,
-            "стоимость прогона": f"${total:.2f}",
+            "judge": model,
+            "cases": len(cases),
+            "splits": ", ".join(f"{split} {result.total}" for split, result in agreements.items()),
+            "positive class": POSITIVE,
+            "run cost": f"${total:.2f}",
         },
         [*aggregates, disagreements_table(cases, verdicts, with_reason=False)],
     )
-    print(f"Отчёт: {path}, сырой прогон: {dump}")
+    print(f"Report: {path}, raw run: {dump}")
     if use_mlflow:
         log_to_mlflow(judge, agreements, model)
-        print("Метрики записаны в MLflow: эксперимент judges")
+        print("Metrics logged to MLflow: experiment judges")
 
 
 def run(
@@ -540,13 +540,13 @@ def run(
     cases = [case for case in judge.load() if split == "all" or case.split == split]
     cases = cases[:first] if first else cases
     if not cases:
-        raise SystemExit(f"кейсов судьи {which} на сплите {split} нет")
+        raise SystemExit(f"no {which} judge cases on split {split}")
 
-    print(f"\nСудья {which}: кейсов {len(cases)} (сплит {split}), модель {model}\n")
+    print(f"\nJudge {which}: cases {len(cases)} (split {split}), model {model}\n")
     verdicts = asyncio.run(ask_all({case.id: case.prompt for case in cases}, judge_options(judge.prompt, model)))
     for case, verdict in zip(cases, verdicts, strict=True):
         mark = "+" if verdict.label == case.truth else "—"
-        print(f"{mark} {case.id[:28]:<28} судья {verdict.label or '?':<4} истина {case.truth:<4} {case.note[:40]}")
+        print(f"{mark} {case.id[:28]:<28} judge {verdict.label or '?':<4} truth {case.truth:<4} {case.note[:40]}")
 
     from crossmarket.agent import flush_langfuse
 
@@ -560,7 +560,7 @@ def regrade(use_mlflow: bool = False, name: str = "judge_b") -> None:
     """Пересчитать метрики сохранённого прогона судьи. LLM не зовётся."""
     cases, verdicts, meta = load_dump(name)
     judge = JUDGES[meta["judge"]] if meta["judge"] in JUDGES else JUDGES["b"]
-    print(f"перегрейд {len(cases)} вердиктов из {RUNS_DIR / f'{name}.jsonl'}\n")
+    print(f"regrading {len(cases)} verdicts from {RUNS_DIR / f'{name}.jsonl'}\n")
     report(judge, cases, verdicts, meta["model"], use_mlflow, RUNS_DIR / f"{name}.jsonl", name)
 
 
@@ -617,8 +617,8 @@ async def run_apply(wb_ids: list[str], model: str) -> list[dict[str, Any]]:
         confirmed = sum(1 for candidate in result.candidates if candidate.matched)
         flagged = sum(1 for verdict in verdicts if verdict.label == POSITIVE)
         print(
-            f"{number:>3}/{len(wb_ids)} {wb_id} подтверждено {confirmed}/{len(result.candidates)}, "
-            f"судья спорит с {flagged} — {result.wb.title[:44]}"
+            f"{number:>3}/{len(wb_ids)} {wb_id} confirmed {confirmed}/{len(result.candidates)}, "
+            f"judge disputes {flagged} — {result.wb.title[:44]}"
         )
         await asyncio.sleep(0)
     return rows
@@ -630,8 +630,8 @@ def apply_tables(rows: list[dict[str, Any]]) -> list[Table]:
     confirmed = [row for row in rows if row["said"] == "match"]
     disputed = [row for row in rows if row["judge"] == POSITIVE]
     summary = Table(
-        "Применение судьи-B на карточках вне разметки",
-        ["карточек ВБ", "кандидатов", "подтверждено тулом", "судья спорит", "спорит о подтверждениях", "$"],
+        "B judge applied to unlabeled listings",
+        ["WB listings", "candidates", "confirmed by tool", "judge disputes", "disputes confirmations", "$"],
         [
             [
                 items,
@@ -644,8 +644,8 @@ def apply_tables(rows: list[dict[str, Any]]) -> list[Table]:
         ],
     )
     table = Table(
-        "Несогласия судьи с тулом (истины нет, читать глазами)",
-        ["ВБ", "Озон", "тул", "довод судьи"],
+        "Judge disagreements with the tool (no ground truth, read by eye)",
+        ["WB", "Ozon", "tool", "judge reason"],
     )
     for row in disputed:
         table.rows.append([row["wb_title"][:44], row["ozon_title"][:44], row["said"], row["judge_reason"]])
@@ -660,7 +660,7 @@ def apply_run(model: str = JUDGE_MODEL, first: int | None = None, name: str = "j
 
     wb_ids = unlabelled_wb_ids()
     wb_ids = wb_ids[:first] if first else wb_ids
-    print(f"\nКарточек ВБ вне разметки: {len(wb_ids)}, судья {model}\n")
+    print(f"\nUnlabeled WB listings: {len(wb_ids)}, judge {model}\n")
     rows = asyncio.run(run_apply(wb_ids, model))
     flush_langfuse()
 
@@ -674,10 +674,10 @@ def apply_run(model: str = JUDGE_MODEL, first: int | None = None, name: str = "j
     print_tables(tables)
     report_path = write_report(
         name,
-        "Судья-B на карточках вне разметки",
-        "Единственное место, где судья-B работает, а не проверяется: истины здесь нет. "
-        "Цифр согласия нет, есть счёт вердиктов и несогласия судьи с тулом — они читаются глазами.",
-        {"судья": model, "карточек ВБ": len({row["wb_id"] for row in rows}), "кандидатов": len(rows)},
+        "B judge on unlabeled listings",
+        "The only place where the B judge does work instead of being checked: there is no ground truth here. "
+        "No agreement numbers — only verdict counts and judge disagreements with the tool, read by eye.",
+        {"judge": model, "WB listings": len({row["wb_id"] for row in rows}), "candidates": len(rows)},
         [tables[0]],
     )
-    print(f"\nОтчёт: {report_path}, сырой прогон: {path}")
+    print(f"\nReport: {report_path}, raw run: {path}")

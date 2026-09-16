@@ -52,7 +52,7 @@ def strata(pairs: list[Label]) -> dict[str, dict[str, int]]:
 
 def summary(pairs: list[Label]) -> str:
     sizes = split_sizes(pairs)
-    return f"пар {len(pairs)}: калибровка {sizes.get('calibration', 0)}, тест {sizes.get('test', 0)}"
+    return f"pairs {len(pairs)}: calibration {sizes.get('calibration', 0)}, test {sizes.get('test', 0)}"
 
 
 def validate(pairs: list[Label]) -> list[str]:
@@ -60,7 +60,7 @@ def validate(pairs: list[Label]) -> list[str]:
     problems = []
     for label in pairs:
         if label.split not in ("calibration", "test"):
-            problems.append(f"{label.id}: сплит не проставлен")
+            problems.append(f"{label.id}: split not assigned")
         if label.label == "no_match" and label.negative_kind is None:
-            problems.append(f"{label.id}: не-матч без negative_kind, страта неизвестна")
+            problems.append(f"{label.id}: no_match without negative_kind, stratum unknown")
     return problems
