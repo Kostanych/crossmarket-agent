@@ -2,7 +2,7 @@
 
 POETRY ?= poetry run
 
-.PHONY: up observe serve eval eval-retrieval eval-qa eval-sql eval-routing eval-matching judges check test lint
+.PHONY: up observe serve ask eval eval-retrieval eval-qa eval-sql eval-routing eval-matching judges check test lint
 
 up:                       ## Qdrant и ClickHouse
 	docker compose --profile infra up -d
@@ -12,6 +12,9 @@ observe:                  ## + Prometheus (:9090) и Grafana (:3000)
 
 serve:                    ## /chat, /health, /metrics на :8000; один воркер — метрики в памяти процесса
 	$(POETRY) uvicorn crossmarket.api:app --host 0.0.0.0 --port 8000
+
+ask:                      ## вопросы агенту через /chat подряд; нужен запущенный make serve
+	$(POETRY) python tools/ask.py
 
 check:                    ## валидация golden-set, без LLM и без денег
 	$(POETRY) python -m evals check
