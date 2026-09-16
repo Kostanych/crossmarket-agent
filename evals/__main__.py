@@ -117,7 +117,11 @@ def main() -> None:
     )
     regrader.add_argument("--tag", help="which run to regrade")
     suites.add_parser("cost", parents=[common], help="cost of saved runs, no LLM")
-    suites.add_parser("all", parents=[common], help="retrieval + qa + sql + routing + matching, corpus with background")
+    everything = suites.add_parser(
+        "all", parents=[common], help="retrieval + qa + sql + routing + matching, corpus with background"
+    )
+    everything.add_argument("--first", type=int, help="run only the first N cases of each paid suite")
+    everything.add_argument("--tag", help="report and dump suffix for the paid suites; retrieval has none")
 
     args = parser.parse_args()
     use_mlflow = not args.no_mlflow
