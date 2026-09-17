@@ -12,11 +12,11 @@ import re
 from pathlib import Path
 from typing import Any
 
-from crossmarket.agent import LIMIT_SUBTYPES, Answer, ask, build_options, flush_langfuse
+from crossmarket.agent import LIMIT_SUBTYPES, Answer, ask, build_options, flush_langfuse, provider_refusal
 from crossmarket.config import AGENT_MODEL, RETRIEVAL_MIN_SCORE
 from evals.cases import Case, split_summary
 from evals.grading import Grade, grade
-from evals.report import Table, print_tables, write_report
+from evals.report import Table, error_warning, print_tables, write_report
 
 RUNS_DIR = Path("evals/runs")
 
@@ -245,7 +245,9 @@ def load_run(name: str = "qa_wb") -> list[dict[str, Any]]:
             subtype=raw["subtype"],
             num_turns=raw["num_turns"],
             cost_usd=raw["cost_usd"],
+            usage=raw.get("usage") or {},
             limit_hit=LIMIT_SUBTYPES.get(raw["subtype"]),
+            error=provider_refusal(raw["answer"], raw.get("usage") or {}),
         )
         rows.append(evaluate_case(Case.from_dict(raw), answer))
     return rows
@@ -314,11 +316,15 @@ def report(rows: list[dict[str, Any]], limits: str, use_mlflow: bool, dump: Path
     total = sum(row["answer"].cost_usd for row in rows)
     print(f"\nSDK outcomes: {subtypes}")
     print(f"questions {len(rows)}, model {AGENT_MODEL}, threshold {RETRIEVAL_MIN_SCORE}, run ${total:.2f}")
+    warning = error_warning(sum(1 for row in rows if row["answer"].error), len(rows))
+    if warning:
+        print(warning)
 
     path = write_report(
         name,
         "Agent over Retrieval-QA: end-to-end on the golden set",
-        "Metric on the final answer: a listing counts if the agent cited its id. "
+        (f"**{warning}**\n\n" if warning else "")
+        + "Metric on the final answer: a listing counts if the agent cited its id. "
         "`shown_recall` (the stage 2 metric, over tool output) is kept as a diagnostic.",
         {
             "orchestrator": AGENT_MODEL,

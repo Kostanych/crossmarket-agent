@@ -18,13 +18,13 @@ from itertools import permutations
 from pathlib import Path
 from typing import Any
 
-from crossmarket.agent import LIMIT_SUBTYPES, Answer, ask, flush_langfuse, sql_options
+from crossmarket.agent import LIMIT_SUBTYPES, Answer, ask, flush_langfuse, provider_refusal, sql_options
 from crossmarket.config import AGENT_MODEL
 from crossmarket.sql import MAX_RESULT_ROWS, SqlResult, run_sql
 from crossmarket.storage import clickhouse
 from evals.cases import SqlCase, split_summary
 from evals.grading import DENIAL
-from evals.report import Table, print_tables, write_report
+from evals.report import Table, error_warning, print_tables, write_report
 
 RUNS_DIR = Path("evals/runs")
 
@@ -370,7 +370,9 @@ def load_run(name: str) -> list[dict[str, Any]]:
             subtype=raw["subtype"],
             num_turns=raw["num_turns"],
             cost_usd=raw["cost_usd"],
+            usage=raw.get("usage") or {},
             limit_hit=LIMIT_SUBTYPES.get(raw["subtype"]),
+            error=provider_refusal(raw["answer"], raw.get("usage") or {}),
         )
         case = SqlCase.from_dict(raw)
         rows.append({"case": case, "answer": answer, "grade": grade(case, answer, client)})
@@ -424,11 +426,15 @@ def report(rows: list[dict[str, Any]], limits: str, use_mlflow: bool, dump: Path
 
     total = sum(row["answer"].cost_usd for row in rows)
     print(f"\nquestions {len(rows)}, model {AGENT_MODEL}, run ${total:.2f}")
+    warning = error_warning(sum(1 for row in rows if row["answer"].error), len(rows))
+    if warning:
+        print(warning)
 
     path = write_report(
         name,
         "Tool C: text2sql over the ClickHouse snapshot",
-        "An answer counts if the rows of at least one executed agent query match the rows of the case's "
+        (f"**{warning}**\n\n" if warning else "")
+        + "An answer counts if the rows of at least one executed agent query match the rows of the case's "
         "reference SQL after normalization: rounding of numbers, row order for unordered questions, "
         "column permutations and extra columns. `exact_match` is a match with no leniency on shape, "
         "`answer_match` is whether the reference values are named in the answer text itself.",

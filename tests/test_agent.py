@@ -284,3 +284,15 @@ def test_langfuse_state_tells_missing_keys_from_outage(monkeypatch: pytest.Monke
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk")
     monkeypatch.setattr("langfuse.get_client", lambda: Offline())
     assert agent.instrument_langfuse() == "unavailable"
+
+
+def test_provider_refusal_without_tokens_is_an_error() -> None:
+    """Лимит подписки приходит `success` с текстом лимита и нулём токенов — это ошибка, а не ответ."""
+    zero = {"input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
+    message = AssistantMessage(content=[TextBlock(text="You've hit your limit")], model="m")
+
+    answer = agent.collect([message], _result("success", usage=zero), None)
+
+    assert answer.error and answer.error.startswith("provider refused")
+    assert agent.collect([message], _result("success", usage={**zero, "input_tokens": 5}), None).error is None
+    assert agent.collect([message], _result("success"), None).error is None

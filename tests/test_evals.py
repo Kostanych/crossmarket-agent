@@ -350,3 +350,13 @@ def test_routing_validate_catches_silent_breakage() -> None:
     assert any("r02" in problem and "label" in problem for problem in problems)
     assert any("r03" in problem and "split" in problem for problem in problems)
     assert any("r04" in problem and "multihop" in problem for problem in problems)
+
+
+def test_multiline_cell_stays_on_one_row() -> None:
+    """Многострочный ответ модели не рвёт ряд ни в stdout, ни в markdown."""
+    from evals.report import Table
+
+    table = Table("t", ["case", "answer"], [["a01", "Нет в базе.\n\nПоиск по  запросу"]])
+
+    assert len(table.to_text().strip().splitlines()) == 4
+    assert "| a01 | Нет в базе. Поиск по запросу |" in table.to_markdown()

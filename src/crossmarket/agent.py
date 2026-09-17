@@ -361,6 +361,20 @@ class Answer:
 
 LIMIT_SUBTYPES = {"error_max_turns": "max_turns", "error_max_budget_usd": "max_budget_usd"}
 
+TOKEN_KEYS = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+
+
+def provider_refusal(text: str, usage: dict[str, Any]) -> str | None:
+    """Отказ провайдера до модели: результат с `subtype=success`, но без единого токена.
+
+    Так CLI отдаёт упёршийся лимит подписки или расходов — текст лимита вместо ответа, и сюита
+    засчитала бы его ответом модели, не звавшей тулов. Ловится по токенам, а не по тексту: формулировки
+    у лимитов разные. Пустой `usage` — дампы до этапа 8 — отказом не считается.
+    """
+    if not usage or any(usage.get(key) for key in TOKEN_KEYS):
+        return None
+    return f"provider refused: {text[:200]}"
+
 
 def _result_text(block: ToolResultBlock) -> str:
     """Текст из результата тула. MCP отдаёт content списком блоков; `str()` на нём ломает переносы строк."""
@@ -405,6 +419,8 @@ def collect(messages: list[Any], result: ResultMessage | None, error: Exception 
         answer.limit_hit = LIMIT_SUBTYPES.get(result.subtype)
         if result.is_error:
             answer.error = "; ".join(result.errors or []) or result.subtype
+        else:
+            answer.error = provider_refusal(answer.text, answer.usage)
     elif error is not None:
         answer.subtype = "error"
         answer.error = f"{type(error).__name__}: {error}"

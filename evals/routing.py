@@ -22,11 +22,12 @@ from crossmarket.agent import (
     Answer,
     ask,
     flush_langfuse,
+    provider_refusal,
     router_options,
 )
 from crossmarket.config import AGENT_MODEL
 from evals.cases import ROUTING_TOOLS, RoutingCase, split_summary
-from evals.report import Table, print_tables, write_report
+from evals.report import Table, error_warning, print_tables, write_report
 
 RUNS_DIR = Path("evals/runs")
 
@@ -269,7 +270,9 @@ def load_run(name: str) -> list[dict[str, Any]]:
             subtype=raw["subtype"],
             num_turns=raw["num_turns"],
             cost_usd=raw["cost_usd"],
+            usage=raw.get("usage") or {},
             limit_hit=LIMIT_SUBTYPES.get(raw["subtype"]),
+            error=provider_refusal(raw["answer"], raw.get("usage") or {}),
         )
         case = RoutingCase.from_dict(raw)
         rows.append({"case": case, "answer": answer, "grade": grade(case, answer)})
@@ -326,11 +329,15 @@ def report(rows: list[dict[str, Any]], limits: str, use_mlflow: bool, dump: Path
     total = sum(row["answer"].cost_usd for row in rows)
     single = sum(1 for case in cases if case.single_hop)
     print(f"\nquestions {len(rows)} (in accuracy {single}), model {AGENT_MODEL}, run ${total:.2f}")
+    warning = error_warning(sum(1 for row in rows if row["answer"].error), len(rows))
+    if warning:
+        print(warning)
 
     path = write_report(
         name,
         "A+B+C routing: which tool the orchestrator picks",
-        "Routing accuracy is the share of single-hop questions where the first tool called is the labeled one. "
+        (f"**{warning}**\n\n" if warning else "")
+        + "Routing accuracy is the share of single-hop questions where the first tool called is the labeled one. "
         "Skill calls are removed from the sequence. Multihop cases are outside the metric: they have several "
         "correct calls, and the question does not always fix their order.",
         {

@@ -16,13 +16,26 @@ from typing import Any
 
 REPORTS_DIR = Path("evals/reports")
 
+ERROR_ALARM = 0.1
+"""Доля ошибок SDK, выше которой прогон помечается недействительным."""
+
+
+def error_warning(errors: int, total: int) -> str:
+    """Предупреждение для stdout и отчёта. Ошибки — в том числе отказ провайдера по лимиту,
+    который без проверки выглядел бы ответом модели.
+    """
+    if not total or errors <= ERROR_ALARM * total:
+        return ""
+    return f"WARNING: {errors} of {total} answers are SDK or provider errors — the run's numbers are invalid."
+
 
 def cell(value: Any) -> str:
+    """Значение ячейки одной строкой: перевод строки в ответе модели разорвал бы ряд таблицы."""
     if isinstance(value, float):
         return f"{value:.3f}"
     if value is None:
         return "—"
-    return str(value)
+    return " ".join(str(value).split())
 
 
 @dataclass
