@@ -103,6 +103,14 @@ Bottom line: direct metrics come first. Where ground truth exists, the judge is 
 C fails that check, B catches about half of the errors, and the answer judge only matched the
 keyword checker (0.925 each on all 40 labeled answers).
 
+**At this data volume the judges did not pay off, and that is a result too.** Judge C failed its
+check and is therefore not used at all: it stays out of the reported values and out of the production
+path, and is kept as a documented negative result. Judge B works as a filter over the matcher's
+rejections but runs into the same ceiling as the tool itself — the incompleteness of the scrape.
+Judge QA did not beat a free deterministic checker. Judges pay off where ground truth does not exist
+and is expensive to produce; in this project it exists almost everywhere, and the direct metric is
+both more accurate and cheaper.
+
 ## Cost
 
 Cost in the reports is the Claude Agent SDK's estimate from the price table bundled with its CLI,

@@ -1,6 +1,6 @@
 [project]
 name = "crossmarket"
-version = "0.1.0"
+version = "1.0.0"
 description = "Multi-tool LLM agent for cross-marketplace price comparison: eval harness, judge calibration on held-out sets, cost and trace observability."
 authors = [
     {name = "Konstantin Sviblov",email = "kostanych1@gmail.com"}

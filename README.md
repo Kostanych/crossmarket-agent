@@ -21,23 +21,43 @@ price aggregates.
 
 Every number below comes from held-out test splits that were never used while tuning the prompts.
 
-| what is measured | metric | test | value |
+| what is measured | metric | test split | value |
 |---|---|---|---|
-| search without the agent | recall@1 / MRR | 11 questions | 0.682 / 0.783 |
-| the agent's answer over search (A) | correct outcome, refusal "not in the database" included | 24 questions | 1.000 |
-| text2sql (C) | query result matches the reference | 19 questions | 0.895 |
-| routing across three tools | the right tool is called first | 27 questions | 1.000 |
-| WB ↔ Ozon matching (B) | F1 (precision / recall), mean of three runs | 61 pairs | 0.747 (0.862 / 0.660) |
-| judge of the agent's answers | agreement with manual labels (baseline) | 17 answers | 0.941 (0.765) |
-| judge of matching | agreement with the pair label (baseline) | 61 verdicts | 0.770 (0.656) |
-| judge of SQL | agreement with the reference (baseline) | 76 answers | 0.882 (0.908) |
+| search without the agent | recall@1 / MRR | 11 questions of 28 | 0.682 / 0.783 |
+| the agent's answer over search (A) | correct outcome, refusal "not in the database" included | 24 of 61 | 1.000 |
+| text2sql (C) | query result matches the reference | 19 of 48 | 0.895 |
+| routing across three tools | the right tool is called first | 27 of 66 | 1.000 |
+| WB ↔ Ozon matching (B) | F1 (precision / recall), mean of three runs | 61 pairs of 153 | 0.747 (0.862 / 0.660) |
+| judge of the agent's answers | agreement with manual labels (baseline) | 17 answers of 40 | 0.941 (0.765) |
+| judge of matching | agreement with the pair label (baseline) | 61 verdicts of 153 | 0.770 (0.656) |
+| judge of SQL | agreement with the reference (baseline) | 76 answers of 192 | 0.882 (0.908) |
+
+The rest of each set is the calibration part the prompts were tuned on, and it never enters the
+reported values. The run gifs below show both figures: every suite reports metrics over the whole set
+and over the test split.
+
+**The 1.000s say the task is easy, not that the system is perfect.** The corpus is small at 427
+listings, the questions are of moderate difficulty, and the test splits are a few dozen cases each: on
+27 questions even a flawless run puts the lower bound of the confidence interval at 0.88, and on 24 at
+0.86. Resolving power had to come from elsewhere — from running a second model: on the same answers
+haiku scores 0.833 instead of 1.000, and on two-tool routing 0.955 over the full set. On a larger
+corpus and with trickier questions these numbers will come down; as they stand they measure an easy
+regime, and that is a limit of the measurement rather than a result.
+
+The ease does not come from picking easy questions: 24 borderline questions in the routing set were
+written precisely to break the choice between tools, and none of them did. The only cases left out of
+the metric are the multihop chains, where several calls are correct and the question does not fix the
+order between them.
 
 `baseline` is what a judge that gives the same answer to every case would score. The SQL judge does
 not beat it: a text2sql miss is a plausible query with the wrong result, and without executing both
-queries it cannot be told from a correct one. The weak spot is matching: retrieval brings in the
-candidates without losses, and a third of the pairs are lost at the confirmation step, because the
-listing does not carry the attribute that would identify the pair. Full breakdown —
-[docs/metrics.en.md](docs/metrics.en.md).
+queries it cannot be told from a correct one. That is why it is not used anywhere: it stays out of the
+reported values, has no part in the production path, and is kept as a documented negative result — a
+judge that failed its check costs less than a judge that was trusted without one.
+
+The weak spot is matching: retrieval brings in the candidates without losses, and a third of the pairs
+are lost at the confirmation step, because the listing does not carry the attribute that would
+identify the pair. Full breakdown — [docs/metrics.en.md](docs/metrics.en.md).
 
 ## How a request flows
 
